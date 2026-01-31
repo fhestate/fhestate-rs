@@ -1,0 +1,50 @@
+# Ignore build artifacts
+/target/
+**/*.rs.bk
+*.pdb
+
+# Ignore Cargo.lock for libraries (keep it for binaries)
+# Cargo.lock
+
+# Ignore generated keys (sensitive!)
+/fhe_keys/
+*.bin
+
+# Ignore wallet files (NEVER commit private keys!)
+*wallet*.json
+*.json
+
+# Ignore logs
+*.log
+*.txt
+!README.txt
+
+# Ignore test artifacts
+/test-ledger/
+/.fhe_cache/
+
+# Ignore Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Ignore IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Ignore environment
+.env
+.env.local
+
+# Ignore documentation builds
+/docs/_build/
+/docs/site/
+
+# Keep examples
+!/examples/

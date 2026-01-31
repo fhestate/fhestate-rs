@@ -1,0 +1,24 @@
+[package]
+name = "fhe-node"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "fhe-node"
+path = "main.rs"
+
+[dependencies]
+fhestate-rs = { path = "../.." }
+solana-client = { workspace = true }
+solana-sdk = { workspace = true }
+tokio = { workspace = true }
+clap = { workspace = true }
+log = { workspace = true }
+env_logger = { workspace = true }
+anyhow = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+bincode = { workspace = true }
+sha2 = { workspace = true }
+hex = { workspace = true }
+tfhe = { workspace = true }
