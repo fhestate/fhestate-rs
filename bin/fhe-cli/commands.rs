@@ -43,7 +43,7 @@ pub fn wallet(output: &str) -> Result<(), Box<dyn Error>> {
 
 pub fn proof(_rpc_url: &str) -> Result<(), Box<dyn Error>> {
     info!("FHEstate Proof Generation");
-    info!("   Target: 'FHestate is coming'");
+    info!("   Target: 'Solana Privacy Ops'");
 
     if !keys_exist("fhe_keys") {
         return Err("Keys not found. Run 'keygen' first.".into());
@@ -54,7 +54,7 @@ pub fn proof(_rpc_url: &str) -> Result<(), Box<dyn Error>> {
     km.activate();
     info!("   Context activated.");
 
-    let sentence = "FHestate is coming";
+    let sentence = "Solana Privacy Ops";
     print!("   Encrypting: ");
     let mut ciphertexts: Vec<FheUint8> = Vec::new();
     for byte in sentence.as_bytes() {

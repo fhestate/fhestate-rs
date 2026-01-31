@@ -24,11 +24,16 @@ Before you begin, ensure you have the following installed:
 *   **Rust (1.70 or higher)**
     ```bash
     curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+    echo 'source $HOME/.cargo/env' >> ~/.profile
+    source $HOME/.cargo/env
     ```
 
 *   **Solana CLI (1.18 or higher)**
     ```bash
-    sh -c "$(curl -sSfL https://release.solana.com/stable/install)"
+    sh -c "$(curl -sSfL https://raw.githubusercontent.com/solana-labs/solana/master/install/solana-install-init.sh)" -- v1.18.26
+    
+    # Add to path (Codespaces)
+    export PATH="/home/codespace/.local/share/solana/install/active_release/bin:$PATH"
     ```
 
 *   **Git**
@@ -107,13 +112,13 @@ cargo run --release --bin fhe_proof -- demo
 ```text
 ═══════════════════════════════════════════════════════════
      FHE STATE: PRODUCTION DEMO
-     Target: 'SKD is ready'
+     Target: 'Solana Privacy Ops'
 ═══════════════════════════════════════════════════════════
 --- Ciphertext Hashes ---
 'S' -> cc9f8376ad33bc...
 ...
-   Original:  SKD is ready
-   Decrypted: TLE!jt!sfbez (Shifted by 1)
+   Original:  Solana Privacy Ops
+   Decrypted: Tpmbob!Qsjwbdz!Pqt (Shifted by 1)
    STATUS: ✅ VERIFIED SUCCESS
 ```
 

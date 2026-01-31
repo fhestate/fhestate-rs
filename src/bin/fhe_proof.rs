@@ -26,7 +26,7 @@ enum Commands {
         #[arg(short, long, default_value = "fhe_keys")]
         out_dir: String,
     },
-    /// Run the "FHestate is coming" End-to-End Demo
+    /// Run the "Solana Privacy Ops" End-to-End Demo
     Demo {
         /// RPC URL
         #[arg(long, default_value = "https://api.devnet.solana.com")]
@@ -76,7 +76,7 @@ fn run_keygen(out_dir: &str) -> Result<(), Box<dyn Error>> {
 fn run_demo(_rpc_url: &str) -> Result<(), Box<dyn Error>> {
     println!("═══════════════════════════════════════════════════════════");
     println!("     FHE STATE: PRODUCTION DEMO (Monorepo-Free)");
-    println!("     Target: 'FHestate is coming'");
+    println!("     Target: 'Solana Privacy Ops'");
     println!("═══════════════════════════════════════════════════════════\n");
 
     // 1. Loading Keys
@@ -99,7 +99,7 @@ fn run_demo(_rpc_url: &str) -> Result<(), Box<dyn Error>> {
     info!("Keys Loaded & Activated.");
 
     // 2. Encryption
-    let target_sentence = "SKD is ready";
+    let target_sentence = "Solana Privacy Ops";
     info!("Encrypting Sentence: '{}'", target_sentence);
     
     let mut ciphertexts = Vec::new();

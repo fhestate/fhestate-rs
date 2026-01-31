@@ -1,3 +1,5 @@
+<div align="center">
+
 # 🛡️ FHESTATE
 
 ### *CONFIDENTIAL COMPUTING ON SOLANA*
