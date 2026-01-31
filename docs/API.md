@@ -310,11 +310,3 @@ Common errors encountered during FHE operations.
 | **202** | `ProgramError` | On-chain instruction failed | Check Program ID and Operation Code |
 
 ---
-
-<div align="center">
-
-**Need Heavier Compute?**
-
-For custom FHE circuit design, contact the [FHESTATE Engineering Team](https://discord.gg/fhestate).
-
-</div>

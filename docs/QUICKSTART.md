@@ -123,7 +123,7 @@ cargo run --release --bin fhe_proof -- demo
 ```
 
 > [!TIP]
-> **Why do I see a pattern?** (S -> T, K -> L)
+> **Why do I see a pattern?** (S -> T, O -> P)
 > The demo is programmed to perform a **homomorphic +1 shift** to prove mathematical accuracy. Only you (the key holder) can see this pattern after decryption. To the Solana Node and any external attacker, the data remains 128-bit secure random noise.
 
 ---

@@ -4,7 +4,6 @@
 
 [![FHESTATE](https://img.shields.io/badge/FHESTATE-Community-8A2BE2?style=for-the-badge&logo=rocket&logoColor=white)](https://github.com/fhestate/fhestate-rs)
 [![Code of Conduct](https://img.shields.io/badge/Contributor-Covenant-2E8B57?style=for-the-badge&logo=handshake&logoColor=white)](CODE_OF_CONDUCT.md)
-[![Discord](https://img.shields.io/badge/Chat-Discord-7289DA?style=for-the-badge&logo=discord&logoColor=white)](https://discord.gg/fhestate)
 
 ---
 
@@ -342,8 +341,6 @@ For clarity, use the following naming conventions in code and documentation:
 ## Questions?
 
 - **Discussion**: [GitHub Discussions](https://github.com/fhestate/fhestate-sdk/discussions)
-- **Twitter**: [Join our twitter](https://x.com/fhestate)
+- **Twitter**: [Join our twitter](https://x.com/fhe_state)
 
 ---
-
-Thank you for contributing to FHESTATE! 🎉
