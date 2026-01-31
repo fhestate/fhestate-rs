@@ -111,8 +111,6 @@ cargo run --release --bin fhe_proof -- demo
 cargo run --bin fhe-cli -- submit --op 1
 ```
 
-**Boom!** Your first FHE transaction on Solana is live. 🎉
-
 ---
 
 ## 🔧 Program Deployment Options
@@ -326,7 +324,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 - **GitHub Issues**: [Report bugs or request features](https://github.com/fhestate/fhestate-rs/issues)
 - **Discussions**: [Join community discussions](https://github.com/fhestate/fhestate-rs/discussions)
-- **Twitter**: [@FHESTATE](https://twitter.com/FHESTATE)
+- **Twitter**: [@fhe_state](https://twitter.com/fhe_state)
 
 ---
 
