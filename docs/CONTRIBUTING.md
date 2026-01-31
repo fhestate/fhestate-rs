@@ -235,7 +235,7 @@ mod tests {
 
 ```rust
 // tests/integration_test.rs
-use fhestate_sdk::*;
+use fhestate_rs::*;
 
 #[test]
 fn test_full_workflow() {

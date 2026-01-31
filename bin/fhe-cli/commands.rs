@@ -1,5 +1,5 @@
-use fhestate_sdk::keys::keys_exist;
-use fhestate_sdk::{FheMath, KeyManager};
+use fhestate_rs::keys::keys_exist;
+use fhestate_rs::{FheMath, KeyManager};
 use log::{error, info};
 use solana_client::rpc_client::RpcClient;
 use solana_sdk::instruction::{AccountMeta, Instruction};

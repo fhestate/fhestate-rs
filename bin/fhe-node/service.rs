@@ -1,5 +1,5 @@
-use fhestate_sdk::constants::POLL_INTERVAL_SECS;
-use fhestate_sdk::{activate_server_key, load_server_key, LocalCache};
+use fhestate_rs::constants::POLL_INTERVAL_SECS;
+use fhestate_rs::{activate_server_key, load_server_key, LocalCache};
 
 #[path = "net.rs"]
 mod net;
