@@ -109,8 +109,9 @@ impl FheMath {
     }
 
     /// Serialize FheUint32 to bytes.
-    pub fn serialize_u32(ct: &FheUint32) -> Vec<u8> {
-        bincode::serialize(ct).unwrap_or_default()
+    /// Returns Err instead of silently producing an empty Vec on failure.
+    pub fn serialize_u32(ct: &FheUint32) -> FheResult<Vec<u8>> {
+        bincode::serialize(ct).map_err(FheError::Serialization)
     }
 
     /// Deserialize FheUint32 from bytes.
