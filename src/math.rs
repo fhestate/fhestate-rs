@@ -1,4 +1,5 @@
 use crate::constants::ops;
+use crate::errors::{FheError, FheResult};
 use sha2::{Digest, Sha256};
 use tfhe::prelude::*;
 use tfhe::{ClientKey, FheUint32, FheUint64, FheUint8};
