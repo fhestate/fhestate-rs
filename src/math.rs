@@ -115,8 +115,9 @@ impl FheMath {
     }
 
     /// Deserialize FheUint32 from bytes.
-    pub fn deserialize_u32(data: &[u8]) -> Option<FheUint32> {
-        bincode::deserialize(data).ok()
+    /// Returns Err on invalid or corrupted data instead of hiding errors.
+    pub fn deserialize_u32(data: &[u8]) -> FheResult<FheUint32> {
+        bincode::deserialize(data).map_err(FheError::Serialization)
     }
 
     /// Execute operation by code.
