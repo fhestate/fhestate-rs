@@ -133,3 +133,28 @@ impl FheMath {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_hash_hex_deterministic_and_64_chars() {
+        let h = FheMath::hash_hex(b"fhestate");
+        assert_eq!(h.len(), 64, "SHA256 hex must be 64 chars");
+        assert_eq!(FheMath::hash_hex(b"fhestate"), h, "hash must be deterministic");
+    }
+
+    #[test]
+    fn test_deserialize_garbage_returns_err() {
+        let res = FheMath::deserialize_u32(&[0xDE, 0xAD, 0xBE, 0xEF]);
+        assert!(res.is_err(), "garbage bytes must return Err not panic");
+    }
+
+    #[test]
+    fn test_op_constants_are_unique() {
+        let codes = [ops::ADD, ops::SUB, ops::MUL, ops::AND, ops::OR, ops::XOR];
+        let unique: std::collections::HashSet<_> = codes.iter().collect();
+        assert_eq!(unique.len(), codes.len(), "all op codes must be distinct");
+    }
+}
