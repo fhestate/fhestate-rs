@@ -116,3 +116,22 @@ impl LocalCache {
         out
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn tmp() -> LocalCache {
+        LocalCache::new(&format!(".fhe_test_cache_{}", std::process::id()))
+    }
+
+    #[test]
+    fn test_store_load_roundtrip() {
+        let c = tmp();
+        let data = b"fhestate ciphertext roundtrip";
+        let uri = c.store(data).unwrap();
+        assert!(uri.starts_with("local://"));
+        assert_eq!(c.load(&uri).unwrap(), data);
+        let _ = c.clear();
+    }
+}
