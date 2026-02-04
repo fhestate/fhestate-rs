@@ -32,7 +32,8 @@ impl LocalCache {
     /// Format: local://<hash_hex>
     pub fn store(&self, data: &[u8]) -> FheResult<String> {
         let hash = self.hash_bytes(data);
-        let hash_hex = hex::encode(&hash[0..16]);
+        // Use full 32-byte hash — was &hash[0..16] which doubled collision risk
+        let hash_hex = hex::encode(&hash);
         let path = format!("{}/{}.bin", self.dir, hash_hex);
 
         let mut file = File::create(&path)?;
