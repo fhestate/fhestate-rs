@@ -134,4 +134,19 @@ mod tests {
         assert_eq!(c.load(&uri).unwrap(), data);
         let _ = c.clear();
     }
+
+    #[test]
+    fn test_cache_miss_returns_err() {
+        let c = tmp();
+        assert!(c.load("local://nonexistent_hash_xyz").is_err());
+    }
+
+    #[test]
+    fn test_uri_uses_full_32_byte_hash() {
+        let c = tmp();
+        let uri = c.store(b"test").unwrap();
+        // "local://" = 8 chars, SHA256 hex = 64 chars → total 72
+        assert_eq!(uri.len(), 72, "URI must encode full 32-byte SHA256 hash");
+        let _ = c.clear();
+    }
 }
