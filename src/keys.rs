@@ -114,4 +114,12 @@ mod tests {
         assert!(!keys_exist("/totally_nonexistent_fhe_dir_9x7z"),
             "keys_exist must return false when directory does not exist");
     }
+
+    #[test]
+    fn test_keys_exist_false_when_dir_is_empty() {
+        let dir = format!(".fhe_test_keys_{}", std::process::id());
+        std::fs::create_dir_all(&dir).unwrap();
+        assert!(!keys_exist(&dir), "keys_exist must return false when key files are absent");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
 }
