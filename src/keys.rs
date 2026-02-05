@@ -104,3 +104,14 @@ pub fn keys_exist(dir: &str) -> bool {
     Path::new(&format!("{}/client_key.bin", dir)).exists()
         && Path::new(&format!("{}/server_key.bin", dir)).exists()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_keys_exist_false_for_missing_dir() {
+        assert!(!keys_exist("/totally_nonexistent_fhe_dir_9x7z"),
+            "keys_exist must return false when directory does not exist");
+    }
+}
