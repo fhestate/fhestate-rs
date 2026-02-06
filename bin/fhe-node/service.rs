@@ -145,22 +145,10 @@ impl ExecutorService {
             info!("Processing Task #{}", task.id);
 
             use sha2::{Digest, Sha256};
-            use std::fs;
-            use tfhe::{set_server_key, FheUint8};
+            use tfhe::{FheUint8};
 
-            // Load FHE server key for homomorphic operations
-            let server_key_path = Path::new("fhe_keys/server_key.bin");
-            if !server_key_path.exists() {
-                error!("Server key not found at {:?}", server_key_path);
-                return Ok(());
-            }
-
-            let server_key_bytes = fs::read(server_key_path)?;
-            let server_key: tfhe::ServerKey = bincode::deserialize(&server_key_bytes)?;
-            set_server_key(server_key);
-
-            // Perform FHE computation based on operation type
-            // For OP=1: perform homomorphic addition
+            // ServerKey is already activated once in ExecutorService::new().
+            // Re-loading it here on every tick wasted ~100MB of I/O per cycle.
             let input_value = (task.id % 256) as u8;
             let encrypted_input = FheUint8::try_encrypt_trivial(input_value)?;
             let operand = FheUint8::try_encrypt_trivial(1u8)?;
