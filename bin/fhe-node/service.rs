@@ -19,6 +19,11 @@ use solana_sdk::instruction::{Instruction, AccountMeta};
 use solana_sdk::transaction::Transaction;
 use std::str::FromStr;
 
+/// Minimum byte length of a serialised Task Anchor account.
+const TASK_MIN_LEN: usize = 140;
+/// Byte offset of the `status` field: discriminator(8) + id(8) + submitter(32) + input_hash(32) + operation(1).
+const TASK_STATUS_OFFSET: usize = 8 + 8 + 32 + 32 + 1;
+
 #[allow(dead_code)]
 #[derive(Debug, Clone, PartialEq)]
 pub enum TaskStatus {
@@ -107,10 +112,8 @@ impl ExecutorService {
         let accounts = self.listener.get_program_accounts(&self.program_id)?;
 
         for (pubkey, data) in accounts {
-            // Very basic discriminator check for 'Task' account (Anchor)
-            // In a real impl, we'd use the proper Anchor account decoding
-            if data.len() >= 140 {
-                let status_byte = data[8 + 8 + 32 + 32 + 1]; // Offset based on our Task struct
+            if data.len() >= TASK_MIN_LEN {
+                let status_byte = data[TASK_STATUS_OFFSET];
                 if status_byte == 0 {
                     // Pending
                     let mut queue = self.task_queue.lock().unwrap();
