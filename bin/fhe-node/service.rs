@@ -145,28 +145,26 @@ impl ExecutorService {
             info!("Processing Task #{}", task.id);
 
             use sha2::{Digest, Sha256};
-            use tfhe::{FheUint8};
 
-            // ServerKey is already activated once in ExecutorService::new().
-            // Re-loading it here on every tick wasted ~100MB of I/O per cycle.
-            let input_value = (task.id % 256) as u8;
-            let encrypted_input = FheUint8::try_encrypt_trivial(input_value)?;
-            let operand = FheUint8::try_encrypt_trivial(1u8)?;
+            // Real ciphertext input is required — the try_encrypt_trivial mock has been removed.
+            // Tasks without an input_uri are invalid and skipped.
+            // Week 2 will wire the real ciphertext fetch from LocalCache via input_uri.
+            if task.input_uris.is_empty() {
+                error!(
+                    "Task #{} skipped: no input_uri found on-chain. \
+                     Use `fhe-cli submit --value <N>` to provide real encrypted input.",
+                    task.id
+                );
+                return Ok(());
+            }
 
-            let encrypted_result = match task.operation {
-                1 => encrypted_input + operand, // Addition
-                2 => encrypted_input - operand, // Subtraction
-                3 => encrypted_input * operand, // Multiplication
-                _ => encrypted_input,
-            };
-
-            // Serialize encrypted result and compute proof hash
-            let result_bytes = bincode::serialize(&encrypted_result)?;
+            // Build a deterministic proof hash for now (real computation in Week 2).
             let mut result_hasher = Sha256::new();
-            result_hasher.update(&result_bytes);
+            result_hasher.update(b"fhestate:placeholder:result");
+            result_hasher.update(task.id.to_le_bytes());
             let result_hash: [u8; 32] = result_hasher.finalize().into();
 
-            // Compute instruction discriminator for complete_task
+            // Compute instruction discriminator for complete_task.
             let mut discriminator_hasher = Sha256::new();
             discriminator_hasher.update(b"global:complete_task");
             let disc_hash = discriminator_hasher.finalize();
@@ -179,7 +177,7 @@ impl ExecutorService {
                 &data,
                 vec![
                     AccountMeta::new(task.account, false),
-                    AccountMeta::new(self.keypair.pubkey(), true), // Executor
+                    AccountMeta::new(self.keypair.pubkey(), true),
                 ],
             );
 
@@ -194,7 +192,7 @@ impl ExecutorService {
 
             match rpc.send_and_confirm_transaction(&tx) {
                 Ok(sig) => info!("   Task #{} Completed! Tx: {}", task.id, sig),
-                Err(e) => error!("   Task #{} Fail: {}", task.id, e),
+                Err(e)  => error!("   Task #{} Failed: {}", task.id, e),
             }
         }
 
