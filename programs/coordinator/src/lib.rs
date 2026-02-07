@@ -175,6 +175,26 @@ pub struct Task {
     pub executor: Pubkey,
 }
 
+/// Persistent encrypted state container — one PDA per submitter.
+/// Seeds: [b"state", owner.key().as_ref()].
+/// Holds the URI of the current encrypted FheUint32 ciphertext and
+/// a SHA256 hash for proof-of-computation verification.
+#[account]
+#[derive(InitSpace)]
+pub struct StateContainer {
+    /// The submitter who owns this state account.
+    pub owner: Pubkey,
+    /// SHA256 of the current encrypted state ciphertext bytes.
+    /// All-zeros = state has not been computed yet (uninitialised).
+    pub state_hash: [u8; 32],
+    /// URI pointing to the ciphertext in off-chain storage.
+    /// Format: "local://<sha256_hex>" or "ipfs://<cid>".
+    #[max_len(128)]
+    pub state_uri: String,
+    /// Monotonically incrementing version — incremented on each state update.
+    pub version: u64,
+}
+
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, PartialEq, Eq, InitSpace)]
 pub enum TaskStatus {
     Pending,
