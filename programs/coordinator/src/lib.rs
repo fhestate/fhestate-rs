@@ -219,6 +219,10 @@ pub enum CoordinatorError {
     TaskNotCompleted,
     #[msg("Executor is inactive")]
     ExecutorInactive,
+    #[msg("StateContainer already initialised for this owner")]
+    PdaAlreadyInitialized,
+    #[msg("State URI must start with local:// or ipfs://")]
+    InvalidStateUri,
 }
 
 #[event]
