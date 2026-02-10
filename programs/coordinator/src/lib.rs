@@ -251,3 +251,10 @@ pub struct TaskChallenged {
     pub task_id: u64,
     pub challenger: Pubkey,
 }
+
+/// Emitted when a new StateContainer PDA is successfully created for a submitter.
+/// Clients can subscribe to this event to know when encrypted state is ready.
+#[event]
+pub struct StateInitialized {
+    pub owner: Pubkey,
+}
