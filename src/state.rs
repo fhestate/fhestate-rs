@@ -8,55 +8,66 @@
 
 use crate::cache::LocalCache;
 use crate::errors::{FheError, FheResult};
+use crate::math::FheMath;
 use sha2::{Digest, Sha256};
 
 /// Off-chain FHE state transition engine.
-///
-/// Encapsulates the load → compute → save cycle so the fhe-node service
-/// can call a single method without knowing the caching internals.
 pub struct StateTransition;
 
 impl StateTransition {
     /// Apply an FHE operation to the current encrypted state.
     ///
-    /// # Arguments
-    /// * `cache`     - Local ciphertext cache.
-    /// * `state_uri` - URI of the current encrypted state, or `None` for a fresh account.
-    /// * `input_bytes` - Serialised `FheUint32` ciphertext provided by the submitter.
-    /// * `op`        - Operation code (from `constants::ops`).
+    /// Steps:
+    /// 1. Load (or bootstrap) the current `FheUint32` ciphertext from cache.
+    /// 2. Deserialise the input ciphertext provided by the submitter.
+    /// 3. Apply `op` homomorphically.
+    /// 4. Serialise and store the new state ciphertext.
+    /// 5. Return `(new_cache_uri, sha256_of_new_state_bytes)`.
     ///
-    /// # Returns
-    /// `(new_state_uri, sha256_of_new_state_bytes)` on success.
+    /// # Arguments
+    /// * `cache`       - Local ciphertext cache.
+    /// * `state_uri`   - Current state URI, or `None` for a fresh account (bootstraps from input).
+    /// * `input_bytes` - Serialised `FheUint32` ciphertext from the submitter.
+    /// * `op`          - Operation code (see `crate::constants::ops`).
     pub fn apply(
         cache: &LocalCache,
         state_uri: Option<&str>,
         input_bytes: &[u8],
         op: u8,
     ) -> FheResult<(String, [u8; 32])> {
-        // Validate input is non-empty before touching FHE context.
         if input_bytes.is_empty() {
             return Err(FheError::ComputationFailed(
                 "input_bytes must not be empty".to_string(),
             ));
         }
 
-        // Load or bootstrap the current state ciphertext bytes.
-        let _state_bytes = match state_uri {
-            Some(uri) => cache.load(uri)?,
+        // Deserialise the submitter's input ciphertext.
+        let input_ct = FheMath::deserialize_u32(input_bytes)?;
+
+        // Compute the new state.
+        let new_state_ct = match state_uri {
             None => {
-                log::info!("StateTransition: no prior state — bootstrapping from zero");
-                Vec::new() // placeholder; Week 2 wires real FheUint32::encrypt(0)
+                // No prior state: treat the input itself as the new state.
+                log::info!("StateTransition: fresh account — using input as initial state");
+                input_ct
+            }
+            Some(uri) => {
+                // Load the old state ciphertext.
+                let old_bytes = cache.load(uri)?;
+                let old_ct = FheMath::deserialize_u32(&old_bytes)?;
+
+                // Apply the requested FHE op.
+                FheMath::execute_op(op, &old_ct, &input_ct).ok_or_else(|| {
+                    FheError::InvalidOperation(op)
+                })?
             }
         };
 
-        // Compute new state bytes (full FHE computation wired in Week 2 service update).
-        // For now, store the input as the new state so the URI / hash pipeline is testable.
-        let new_state_bytes = input_bytes.to_vec();
-
-        // Persist new state.
+        // Serialise the new state and persist it.
+        let new_state_bytes = FheMath::serialize_u32(&new_state_ct)?;
         let new_uri = cache.store(&new_state_bytes)?;
 
-        // Compute SHA256 proof hash of the new state.
+        // Compute SHA256 proof hash of the new state bytes.
         let mut hasher = Sha256::new();
         hasher.update(&new_state_bytes);
         let mut hash = [0u8; 32];
