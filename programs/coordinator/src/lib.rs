@@ -60,6 +60,30 @@ pub mod coordinator {
         Ok(())
     }
 
+    /// Create a [`StateContainer`] PDA for the calling submitter.
+    /// Seeds: [b"state", submitter.key()].
+    /// Fails with [`CoordinatorError::PdaAlreadyInitialized`] if the PDA is already populated.
+    pub fn initialize_state(ctx: Context<InitializeState>) -> Result<()> {
+        let container = &mut ctx.accounts.state_container;
+
+        // Guard: if owner is already set the PDA was previously initialised.
+        require!(
+            container.owner == Pubkey::default(),
+            CoordinatorError::PdaAlreadyInitialized
+        );
+
+        container.owner = ctx.accounts.submitter.key();
+        container.state_hash = [0u8; 32];
+        container.state_uri = String::new();
+        container.version = 0;
+
+        emit!(StateInitialized {
+            owner: container.owner,
+        });
+
+        Ok(())
+    }
+
     pub fn complete_task(ctx: Context<CompleteTask>, result_hash: [u8; 32]) -> Result<()> {
         let task = &mut ctx.accounts.task;
         let executor = &mut ctx.accounts.executor;
