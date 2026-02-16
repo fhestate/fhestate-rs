@@ -84,6 +84,32 @@ pub mod coordinator {
         Ok(())
     }
 
+    /// Store an encrypted input URI and its SHA256 hash on the submitter's StateContainer.
+    /// The fhe-node reads these fields to fetch the real ciphertext from off-chain storage.
+    pub fn submit_input(
+        ctx: Context<SubmitInput>,
+        input_uri: String,
+        input_hash: [u8; 32],
+    ) -> Result<()> {
+        require!(
+            input_uri.starts_with("local://") || input_uri.starts_with("ipfs://"),
+            CoordinatorError::InvalidStateUri
+        );
+
+        let container = &mut ctx.accounts.state_container;
+        container.state_uri = input_uri.clone();
+        container.state_hash = input_hash;
+
+        emit!(TaskSubmitted {
+            task_id: container.version,
+            submitter: container.owner,
+            input_hash,
+            operation: 0,
+        });
+
+        Ok(())
+    }
+
     pub fn complete_task(ctx: Context<CompleteTask>, result_hash: [u8; 32]) -> Result<()> {
         let task = &mut ctx.accounts.task;
         let executor = &mut ctx.accounts.executor;
@@ -167,6 +193,33 @@ pub struct ChallengeTask<'info> {
     #[account(mut)]
     pub task: Account<'info, Task>,
     pub challenger: Signer<'info>,
+}
+
+#[derive(Accounts)]
+pub struct InitializeState<'info> {
+    #[account(
+        init,
+        payer = submitter,
+        space = 8 + StateContainer::INIT_SPACE,
+        seeds = [b"state", submitter.key().as_ref()],
+        bump
+    )]
+    pub state_container: Account<'info, StateContainer>,
+    #[account(mut)]
+    pub submitter: Signer<'info>,
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct SubmitInput<'info> {
+    #[account(
+        mut,
+        seeds = [b"state", submitter.key().as_ref()],
+        bump
+    )]
+    pub state_container: Account<'info, StateContainer>,
+    #[account(mut)]
+    pub submitter: Signer<'info>,
 }
 
 #[account]
