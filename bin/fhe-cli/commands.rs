@@ -10,8 +10,9 @@ use std::error::Error;
 use std::fs::File;
 use std::io::Write;
 use std::str::FromStr;
-use tfhe::FheUint8;
 use tfhe::prelude::*;
+use fhestate_rs::LocalCache;
+use sha2::{Digest, Sha256};
 
 pub fn keygen(out_dir: &str) -> Result<(), Box<dyn Error>> {
     info!("FHEstate Key Generation");
@@ -98,53 +99,62 @@ pub fn submit_task(
     program_id: &str,
     wallet_path: &str,
     op: u8,
+    value: u32,
 ) -> Result<(), Box<dyn Error>> {
     info!("Submitting FHE Task to Solana");
 
-    // 1. Load Wallet
     let wallet_file = File::open(wallet_path)?;
     let wallet_bytes: Vec<u8> = serde_json::from_reader(wallet_file)?;
     let payer = Keypair::from_bytes(&wallet_bytes)?;
     info!("   Submitter: {}", payer.pubkey());
 
-    // 2. Prepare Data
     let prog_id = Pubkey::from_str(program_id)?;
     let rpc = RpcClient::new(rpc_url.to_string());
 
-    // Load FHE client key for encryption
-    use sha2::{Digest, Sha256};
     use std::fs;
     use std::path::Path;
-    use tfhe::{ClientKey, FheUint8};
+    use tfhe::ClientKey;
 
     let client_key_path = Path::new("fhe_keys/client_key.bin");
     if !client_key_path.exists() {
         return Err("Client key not found. Run keygen first.".into());
     }
-
     let client_key_bytes = fs::read(client_key_path)?;
     let client_key: ClientKey = bincode::deserialize(&client_key_bytes)?;
 
-    // Encrypt operation input
-    let input_value = (op as u8).wrapping_mul(7);
-    let encrypted_input = FheUint8::encrypt(input_value, &client_key);
+    info!("   Encrypting value {} as FheUint32...", value);
+    let encrypted_input = tfhe::FheUint32::encrypt(value, &client_key);
+    let ciphertext_bytes = FheMath::serialize_u32(&encrypted_input)?;
 
-    // Serialize and hash the encrypted input
-    let ciphertext_bytes = bincode::serialize(&encrypted_input)?;
+    let cache = LocalCache::new(".fhe_cache");
+    let uri = cache.store(&ciphertext_bytes)?;
+    info!("   Ciphertext cached: {}", uri);
+
     let mut hasher = Sha256::new();
     hasher.update(&ciphertext_bytes);
     let input_hash: [u8; 32] = hasher.finalize().into();
 
-    // Build task submission data with hash proof
-    let task_data = format!(
-        "FHE_TASK_SUBMISSION:OP={}:HASH={}",
-        op,
-        hex::encode(&input_hash[..16])
-    );
-    let data = task_data.as_bytes().to_vec();
+    let mut disc_hasher = Sha256::new();
+    disc_hasher.update(b"global:submit_input");
+    let disc = disc_hasher.finalize();
 
-    let ix =
-        Instruction::new_with_bytes(prog_id, &data, vec![AccountMeta::new(payer.pubkey(), true)]);
+    // Borsh layout for String is [u32 len, bytes...]
+    let mut data = disc[..8].to_vec();
+    let uri_bytes = uri.as_bytes();
+    data.extend_from_slice(&(uri_bytes.len() as u32).to_le_bytes());
+    data.extend_from_slice(uri_bytes);
+    data.extend_from_slice(&input_hash);
+
+    let (state_pda, _bump) = Pubkey::find_program_address(&[b"state", payer.pubkey().as_ref()], &prog_id);
+
+    let ix = Instruction::new_with_bytes(
+        prog_id,
+        &data,
+        vec![
+            AccountMeta::new(state_pda, false),
+            AccountMeta::new(payer.pubkey(), true),
+        ],
+    );
 
     let recent_blockhash = rpc.get_latest_blockhash()?;
     let tx = Transaction::new_signed_with_payer(
@@ -157,6 +167,53 @@ pub fn submit_task(
     info!("   Sending Transaction...");
     let signature = rpc.send_and_confirm_transaction(&tx)?;
     info!("   Success! Transaction Hash: {}", signature);
+
+    Ok(())
+}
+
+pub fn init_state(
+    rpc_url: &str,
+    program_id: &str,
+    wallet_path: &str,
+) -> Result<(), Box<dyn Error>> {
+    info!("Initializing StateContainer on Solana");
+
+    let wallet_file = File::open(wallet_path)?;
+    let wallet_bytes: Vec<u8> = serde_json::from_reader(wallet_file)?;
+    let payer = Keypair::from_bytes(&wallet_bytes)?;
+    
+    let prog_id = Pubkey::from_str(program_id)?;
+    let rpc = RpcClient::new(rpc_url.to_string());
+
+    let (state_pda, _bump) = Pubkey::find_program_address(&[b"state", payer.pubkey().as_ref()], &prog_id);
+    info!("   StateContainer PDA: {}", state_pda);
+
+    let mut disc_hasher = Sha256::new();
+    disc_hasher.update(b"global:initialize_state");
+    let disc = disc_hasher.finalize();
+    let data = disc[..8].to_vec();
+
+    let ix = Instruction::new_with_bytes(
+        prog_id,
+        &data,
+        vec![
+            AccountMeta::new(state_pda, false),
+            AccountMeta::new(payer.pubkey(), true),
+            AccountMeta::new_readonly(solana_sdk::system_program::id(), false),
+        ],
+    );
+
+    let recent_blockhash = rpc.get_latest_blockhash()?;
+    let tx = Transaction::new_signed_with_payer(
+        &[ix],
+        Some(&payer.pubkey()),
+        &[&payer],
+        recent_blockhash,
+    );
+
+    info!("   Sending Transaction...");
+    let signature = rpc.send_and_confirm_transaction(&tx)?;
+    info!("   Initialized! Transaction Hash: {}", signature);
 
     Ok(())
 }
