@@ -41,6 +41,18 @@ enum Commands {
         wallet: String,
         #[arg(short, long, default_value_t = 1)]
         op: u8,
+        /// The real value to encrypt as FheUint32
+        #[arg(short, long)]
+        value: u32,
+    },
+    /// Initialize a StateContainer PDA for the user
+    InitState {
+        #[arg(long, default_value = "https://api.devnet.solana.com")]
+        rpc_url: String,
+        #[arg(long, default_value = "MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr")]
+        program: String,
+        #[arg(long, default_value = "deploy-wallet.json")]
+        wallet: String,
     },
 }
 
@@ -57,7 +69,13 @@ fn main() {
             program,
             wallet,
             op,
-        } => commands::submit_task(&rpc_url, &program, &wallet, op),
+            value,
+        } => commands::submit_task(&rpc_url, &program, &wallet, op, value),
+        Commands::InitState {
+            rpc_url,
+            program,
+            wallet,
+        } => commands::init_state(&rpc_url, &program, &wallet),
     };
 
     if let Err(e) = result {
