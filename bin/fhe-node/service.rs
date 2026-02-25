@@ -5,11 +5,12 @@ use fhestate_rs::{activate_server_key, load_server_key, LocalCache};
 mod net;
 use net::ChainListener;
 
-use tfhe::prelude::*;
+
 use tokio::time::{sleep, Duration};
 use log::{info, warn, error};
+use sha2::Digest;
 use std::sync::{Arc, Mutex};
-use std::collections::VecDeque;
+use std::collections::{VecDeque, HashMap};
 use std::error::Error;
 use std::fs::File;
 use std::path::Path;
@@ -18,19 +19,22 @@ use solana_sdk::pubkey::Pubkey;
 use solana_sdk::instruction::{Instruction, AccountMeta};
 use solana_sdk::transaction::Transaction;
 use std::str::FromStr;
+use solana_transaction_status::UiTransactionEncoding;
+use hex;
 
 /// Minimum byte length of a serialised Task Anchor account.
-const TASK_MIN_LEN: usize = 140;
-/// Byte offset of the `status` field: discriminator(8) + id(8) + submitter(32) + input_hash(32) + operation(1).
-const TASK_STATUS_OFFSET: usize = 8 + 8 + 32 + 32 + 1;
+const TASK_MIN_LEN: usize = 150; 
 
 #[allow(dead_code)]
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum TaskStatus {
     Pending,
     Processing,
     Completed,
     Failed,
+    RevealRequested,
+    Revealed,
+    Challenged,
 }
 
 #[allow(dead_code)]
@@ -38,8 +42,10 @@ pub enum TaskStatus {
 pub struct FheTask {
     pub account: Pubkey,
     pub id: u64,
+    pub submitter: Pubkey,
+    pub target_owner: Pubkey,
     pub operation: u8,
-    pub input_uris: Vec<String>,
+    pub input_uri: String,
     pub status: TaskStatus,
 }
 
@@ -51,6 +57,7 @@ pub struct ExecutorService {
     keypair: Keypair,
     program_id: Pubkey,
     key_manager: Arc<Mutex<Option<tfhe::ServerKey>>>,
+    processed_states: Arc<Mutex<HashMap<Pubkey, u64>>>,
 }
 
 impl ExecutorService {
@@ -88,6 +95,7 @@ impl ExecutorService {
             keypair,
             program_id,
             key_manager: Arc::new(Mutex::new(Some(server_key))),
+            processed_states: Arc::new(Mutex::new(HashMap::new())),
         })
     }
 
@@ -109,27 +117,114 @@ impl ExecutorService {
     }
 
     async fn poll_tasks(&self) -> Result<(), Box<dyn Error>> {
+        // 1. Traditional Task Account Polling
         let accounts = self.listener.get_program_accounts(&self.program_id)?;
-
         for (pubkey, data) in accounts {
-            if data.len() >= TASK_MIN_LEN {
-                let status_byte = data[TASK_STATUS_OFFSET];
-                if status_byte == 0 {
-                    // Pending
-                    let mut queue = self.task_queue.lock().unwrap();
-                    if !queue.iter().any(|t| t.account == pubkey) {
-                        let id = u64::from_le_bytes(data[8..16].try_into().unwrap());
-                        let op = data[8 + 8 + 32 + 32];
+            let data: Vec<u8> = data;
+            if data.len() < TASK_MIN_LEN { continue; }
+            
+            let mut disc_hasher = sha2::Sha256::new();
+            disc_hasher.update(b"account:Task");
+            let disc = &disc_hasher.finalize()[..8];
+            if data[..8] != *disc { continue; }
+
+            let id = u64::from_le_bytes(data[8..16].try_into().unwrap());
+            let submitter = Pubkey::new_from_array(data[16..48].try_into().unwrap());
+            let target_owner = Pubkey::new_from_array(data[48..80].try_into().unwrap());
+            
+            let uri_len = u32::from_le_bytes(data[112..116].try_into().unwrap()) as usize;
+            if data.len() < 116 + uri_len { continue; }
+            let input_uri = String::from_utf8_lossy(&data[116..116 + uri_len]).to_string();
+            
+            let op_offset = 116 + uri_len;
+            let op = data[op_offset];
+            let status_byte = data[op_offset + 1];
+
+            if status_byte == 0 || status_byte == 4 { // Pending or RevealRequested
+                let status = if status_byte == 0 { TaskStatus::Pending } else { TaskStatus::RevealRequested };
+                let mut queue = self.task_queue.lock().unwrap();
+                if !queue.iter().any(|t| t.account == pubkey) {
+                    queue.push_back(FheTask {
+                        account: pubkey,
+                        id,
+                        submitter,
+                        target_owner,
+                        operation: op,
+                        input_uri,
+                        status,
+                    });
+                    info!("   Task Detected: #{} status {:?} at {}", id, status, pubkey);
+                }
+            }
+        }
+
+        // 2. StateContainer (Inline) Polling
+        let states = self.listener.get_state_containers(&self.program_id)?;
+        for (pubkey, data) in states {
+            if data.len() < 8 + 32 + 32 + 4 + 8 { continue; }
+            
+            let owner = Pubkey::new_from_array(data[8..40].try_into().unwrap());
+            let uri_len = u32::from_le_bytes(data[72..76].try_into().unwrap()) as usize;
+            let version_offset = 76 + uri_len;
+            if data.len() < version_offset + 8 { continue; }
+            let version = u64::from_le_bytes(data[version_offset..version_offset+8].try_into().unwrap());
+
+            let mut processed = self.processed_states.lock().unwrap();
+            let last_version = *processed.get(&pubkey).unwrap_or(&0);
+
+            if version > last_version {
+                info!("   Inline State Update Detected for PDA {} (v{} > v{})", pubkey, version, last_version);
+                
+                // Fetch the transaction to get the input data and operation
+                let sigs = self.listener.get_client().get_signatures_for_address(&pubkey)?;
+                if let Some(sig_info) = sigs.first() {
+                    let sig = solana_sdk::signature::Signature::from_str(&sig_info.signature)?;
+                    let tx_resp = self.listener.get_client().get_transaction(&sig, UiTransactionEncoding::Base64)?;
+                    
+                    let mut input_uri = String::new();
+                    let mut op = 0;
+
+                    if let Some(meta) = tx_resp.transaction.meta {
+                        if meta.err.is_none() {
+                            let mut disc_hasher = sha2::Sha256::new();
+                            disc_hasher.update(b"global:submit_input");
+                            let target_disc = &disc_hasher.finalize()[..8];
+
+                            if let solana_transaction_status::EncodedTransaction::Binary(bin_tx, _) = tx_resp.transaction.transaction {
+                                use base64::{Engine as _, engine::general_purpose};
+                                let decoded_tx_bytes = general_purpose::STANDARD.decode(bin_tx.to_string()).unwrap_or_default();
+                                if let Ok(tx) = bincode::deserialize::<solana_sdk::transaction::Transaction>(&decoded_tx_bytes) {
+                                    for ix in &tx.message.instructions {
+                                        if ix.data.len() >= 8 && &ix.data[..8] == target_disc {
+                                            if let Some(&last_byte) = ix.data.last() {
+                                                op = last_byte;
+                                                info!("   Extracted Op Code: {} from transaction {}", op, sig);
+                                            }
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+
+                            let hash_hex = hex::encode(&data[40..72]);
+                            input_uri = format!("inline://{}", hash_hex);
+                        }
+                    }
+                    
+                    if !input_uri.is_empty() {
+                        let mut queue = self.task_queue.lock().unwrap();
                         queue.push_back(FheTask {
-                            account: pubkey,
-                            id,
-                            operation: op,
-                            input_uris: vec![],
+                            account: Pubkey::default(),
+                            id: version,
+                            submitter: owner,
+                            target_owner: owner, 
+                            operation: op, 
+                            input_uri,
                             status: TaskStatus::Pending,
                         });
-                        info!("   New Task Detected: #{} at {}", id, pubkey);
                     }
                 }
+                processed.insert(pubkey, version);
             }
         }
         Ok(())
@@ -142,60 +237,172 @@ impl ExecutorService {
         };
 
         if let Some(task) = task {
-            info!("Processing Task #{}", task.id);
+            info!("Processing Task #{} (Op: {})", task.id, task.operation);
 
-            use sha2::{Digest, Sha256};
+            // 1. Fetch input ciphertext from cache (Local, IPFS, or INLINE)
+            let input_bytes = if task.input_uri.starts_with("inline://") {
+                info!("   Task #{} resolving inline ciphertext from local cache...", task.id);
+                let local_uri = task.input_uri.replace("inline://", "local://");
+                match self.cache.resolve(&local_uri) {
+                    Ok(bytes) => bytes,
+                    Err(e) => {
+                        error!("   Task #{} error: failed to resolve inline ciphertext: {}", task.id, e);
+                        return Ok(());
+                    }
+                }
+            } else {
+                match self.cache.resolve(&task.input_uri) {
+                    Ok(bytes) => bytes,
+                    Err(e) => {
+                        error!("   Task #{} error: failed to resolve input ciphertext: {}", task.id, e);
+                        return Ok(());
+                    }
+                }
+            };
 
-            // Real ciphertext input is required — the try_encrypt_trivial mock has been removed.
-            // Tasks without an input_uri are invalid and skipped.
-            // Week 2 will wire the real ciphertext fetch from LocalCache via input_uri.
-            if task.input_uris.is_empty() {
-                error!(
-                    "Task #{} skipped: no input_uri found on-chain. \
-                     Use `fhe-cli submit --value <N>` to provide real encrypted input.",
-                    task.id
+            // Handle Reveal Logic
+            if task.status == TaskStatus::RevealRequested {
+                info!("   Task #{} is a Reveal Request. Generating decryption share...", task.id);
+                let reveal_data = format!("REVEALED:StateHash:{}", hex::encode(input_bytes));
+                
+                let mut disc_hasher = sha2::Sha256::new();
+                disc_hasher.update(b"global:provide_reveal");
+                let disc_hash = disc_hasher.finalize();
+                
+                let mut data = disc_hash[..8].to_vec();
+                let reveal_bytes = reveal_data.as_bytes();
+                data.extend_from_slice(&(reveal_bytes.len() as u32).to_le_bytes());
+                data.extend_from_slice(reveal_bytes);
+
+                let ix = Instruction::new_with_bytes(
+                    self.program_id,
+                    &data,
+                    vec![
+                        AccountMeta::new(task.account, false),
+                        AccountMeta::new(self.keypair.pubkey(), true),
+                    ],
                 );
+                
+                self.send_tx(vec![ix]).await?;
                 return Ok(());
             }
 
-            // Build a deterministic proof hash for now (real computation in Week 2).
-            let mut result_hasher = Sha256::new();
-            result_hasher.update(b"fhestate:placeholder:result");
-            result_hasher.update(task.id.to_le_bytes());
-            let result_hash: [u8; 32] = result_hasher.finalize().into();
 
-            // Compute instruction discriminator for complete_task.
-            let mut discriminator_hasher = Sha256::new();
-            discriminator_hasher.update(b"global:complete_task");
+            // 2. Resolve StateContainer PDA for the user to find the *old* state
+            let (state_pda, _bump) = Pubkey::find_program_address(
+                &[b"state", task.target_owner.as_ref()],
+                &self.program_id
+            );
+
+            let old_state_uri = match self.listener.get_client().get_account_data(&state_pda) {
+                Ok(data) if data.len() >= 76 => {
+                    let uri_len = u32::from_le_bytes(data[72..76].try_into().unwrap()) as usize;
+                    if uri_len > 0 && data.len() >= 76 + uri_len {
+                        Some(String::from_utf8_lossy(&data[76..76 + uri_len]).to_string())
+                    } else {
+                        None
+                    }
+                }
+                _ => None,
+            };
+
+            // 3. Apply FHE state transition
+            let (new_uri, result_hash) = match fhestate_rs::StateTransition::apply(
+                &self.cache,
+                old_state_uri.as_deref(),
+                &input_bytes,
+                task.operation,
+            ) {
+                Ok(res) => res,
+                Err(e) => {
+                    error!("   Task #{} FHE error: {}", task.id, e);
+                    return Ok(());
+                }
+            };
+
+            // Fetch current state hash for deterministic chaining
+            let previous_state_hash: [u8; 32] = match self.listener.get_client().get_account_data(&state_pda) {
+                Ok(data) if data.len() >= 72 => {
+                    data[40..72].try_into().unwrap()
+                }
+                _ => [0u8; 32],
+            };
+
+            info!("   FHE Computation Success. New State: {}", new_uri);
+
+            let mut discriminator_hasher = sha2::Sha256::new();
+            let is_inline = task.account == Pubkey::default();
+
+            // Fetch executor account address (we are the executor)
+            let mut executor_account = Pubkey::default();
+            if let Ok(accounts_data) = self.listener.get_program_accounts(&self.program_id) {
+                let mut exec_disc_hasher = sha2::Sha256::new();
+                exec_disc_hasher.update(b"account:Executor");
+                let exec_disc = &exec_disc_hasher.finalize()[..8];
+                
+                for (pk, data) in accounts_data {
+                    if data.len() >= 8 + 32 && &data[..8] == exec_disc && data[8..40] == self.keypair.pubkey().to_bytes() {
+                        executor_account = pk;
+                        break;
+                    }
+                }
+            }
+
+            let (_ix_name, accounts) = if is_inline {
+                discriminator_hasher.update(b"global:update_state_pda");
+                ("update_state_pda", vec![
+                    AccountMeta::new(state_pda, false),
+                    AccountMeta::new_readonly(task.submitter, false), 
+                    AccountMeta::new(executor_account, false),
+                    AccountMeta::new(self.keypair.pubkey(), true),
+                ])
+            } else {
+                discriminator_hasher.update(b"global:update_state");
+                ("update_state", vec![
+                    AccountMeta::new(task.account, false),
+                    AccountMeta::new(executor_account, false),
+                    AccountMeta::new(state_pda, false),
+                    AccountMeta::new(self.keypair.pubkey(), true),
+                ])
+            };
+
             let disc_hash = discriminator_hasher.finalize();
-
             let mut data = disc_hash[..8].to_vec();
+            data.extend_from_slice(&previous_state_hash);
             data.extend_from_slice(&result_hash);
+            
+            let uri_bytes = new_uri.as_bytes();
+            data.extend_from_slice(&(uri_bytes.len() as u32).to_le_bytes());
+            data.extend_from_slice(uri_bytes);
 
             let ix = Instruction::new_with_bytes(
                 self.program_id,
                 &data,
-                vec![
-                    AccountMeta::new(task.account, false),
-                    AccountMeta::new(self.keypair.pubkey(), true),
-                ],
+                accounts,
             );
 
-            let rpc = self.listener.get_client();
-            let blockhash = rpc.get_latest_blockhash()?;
-            let tx = Transaction::new_signed_with_payer(
-                &[ix],
-                Some(&self.keypair.pubkey()),
-                &[&self.keypair],
-                blockhash,
-            );
 
-            match rpc.send_and_confirm_transaction(&tx) {
-                Ok(sig) => info!("   Task #{} Completed! Tx: {}", task.id, sig),
-                Err(e)  => error!("   Task #{} Failed: {}", task.id, e),
+
+            match self.send_tx(vec![ix]).await {
+                Ok(_) => info!("   Task #{} Completed!", task.id),
+                Err(e) => error!("   Task #{} Failed: {}", task.id, e),
             }
         }
 
         Ok(())
+    }
+
+    async fn send_tx(&self, ixs: Vec<Instruction>) -> Result<String, Box<dyn Error>> {
+        let rpc = self.listener.get_client();
+        let blockhash = rpc.get_latest_blockhash()?;
+        let tx = Transaction::new_signed_with_payer(
+            &ixs,
+            Some(&self.keypair.pubkey()),
+            &[&self.keypair],
+            blockhash,
+        );
+        let sig = rpc.send_and_confirm_transaction(&tx)?;
+        info!("   Transaction Success: {}", sig);
+        Ok(sig.to_string())
     }
 }
