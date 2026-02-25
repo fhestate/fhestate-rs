@@ -21,6 +21,16 @@ pub mod coordinator {
         
         require!(stake_amount >= registry.min_stake, CoordinatorError::InsufficientStake);
         
+        // MOVEMENT: Actually transfer SOL to the executor account for staking
+        let cpi_context = CpiContext::new(
+            ctx.accounts.system_program.to_account_info(),
+            anchor_lang::system_program::Transfer {
+                from: ctx.accounts.owner.to_account_info(),
+                to: ctx.accounts.executor.to_account_info(),
+            },
+        );
+        anchor_lang::system_program::transfer(cpi_context, stake_amount)?;
+
         executor.owner = ctx.accounts.owner.key();
         executor.stake = stake_amount;
         executor.active = true;
@@ -36,42 +46,41 @@ pub mod coordinator {
         Ok(())
     }
 
-    pub fn submit_task(ctx: Context<SubmitTask>, input_hash: [u8; 32], operation: u8) -> Result<()> {
-        let registry = &mut ctx.accounts.registry;
+    pub fn submit_task(ctx: Context<SubmitTask>, id: u64, input_hash: [u8; 32], input_uri: String, operation: u8, target_owner: Option<Pubkey>) -> Result<()> {
         let task = &mut ctx.accounts.task;
-        
-        task.id = registry.task_count;
+        let registry = &mut ctx.accounts.registry;
+
+        require!(
+            input_uri.starts_with("local://") || input_uri.starts_with("ipfs://"),
+            CoordinatorError::InvalidStateUri
+        );
+
+        task.id = id;
         task.submitter = ctx.accounts.submitter.key();
+        task.target_owner = target_owner.unwrap_or(ctx.accounts.submitter.key()); // Default to self if no target
         task.input_hash = input_hash;
+        task.input_uri = input_uri;
         task.operation = operation;
         task.status = TaskStatus::Pending;
         task.result_hash = [0u8; 32];
+        task.result_uri = String::default();
         task.executor = Pubkey::default();
         
         registry.task_count += 1;
-        
+
         emit!(TaskSubmitted {
-            task_id: task.id,
+            task_id: id,
             submitter: task.submitter,
-            input_hash,
+            target_owner: task.target_owner,
             operation,
         });
-        
+
         Ok(())
     }
 
     /// Create a [`StateContainer`] PDA for the calling submitter.
-    /// Seeds: [b"state", submitter.key()].
-    /// Fails with [`CoordinatorError::PdaAlreadyInitialized`] if the PDA is already populated.
     pub fn initialize_state(ctx: Context<InitializeState>) -> Result<()> {
         let container = &mut ctx.accounts.state_container;
-
-        // Guard: if owner is already set the PDA was previously initialised.
-        require!(
-            container.owner == Pubkey::default(),
-            CoordinatorError::PdaAlreadyInitialized
-        );
-
         container.owner = ctx.accounts.submitter.key();
         container.state_hash = [0u8; 32];
         container.state_uri = String::new();
@@ -84,66 +93,142 @@ pub mod coordinator {
         Ok(())
     }
 
-    /// Store an encrypted input URI and its SHA256 hash on the submitter's StateContainer.
-    /// The fhe-node reads these fields to fetch the real ciphertext from off-chain storage.
     pub fn submit_input(
         ctx: Context<SubmitInput>,
-        input_uri: String,
-        input_hash: [u8; 32],
+        encrypted_data: Vec<u8>,
+        operation: u8,
     ) -> Result<()> {
-        require!(
-            input_uri.starts_with("local://") || input_uri.starts_with("ipfs://"),
-            CoordinatorError::InvalidStateUri
-        );
-
         let container = &mut ctx.accounts.state_container;
-        container.state_uri = input_uri.clone();
-        container.state_hash = input_hash;
+        let hash = anchor_lang::solana_program::hash::hash(&encrypted_data).to_bytes();
+        
+        container.state_hash = hash;
+        container.state_uri = format!("inline://{}", hex::encode(hash));
+        container.version += 1;
 
         emit!(TaskSubmitted {
             task_id: container.version,
             submitter: container.owner,
-            input_hash,
-            operation: 0,
+            target_owner: container.owner, // For inline input, target is always self
+            operation,
         });
 
         Ok(())
     }
 
-    pub fn complete_task(ctx: Context<CompleteTask>, result_hash: [u8; 32]) -> Result<()> {
+    pub fn update_state(
+        ctx: Context<UpdateState>,
+        previous_state_hash: [u8; 32],
+        result_hash: [u8; 32],
+        result_uri: String,
+    ) -> Result<()> {
         let task = &mut ctx.accounts.task;
         let executor = &mut ctx.accounts.executor;
-        
+        let state_container = &mut ctx.accounts.state_container;
+
         require!(task.status == TaskStatus::Pending, CoordinatorError::TaskNotPending);
         require!(executor.active, CoordinatorError::ExecutorInactive);
         
+        require!(
+            state_container.state_hash == previous_state_hash,
+            CoordinatorError::StateHashMismatch
+        );
+
         task.result_hash = result_hash;
-        task.executor = ctx.accounts.executor_signer.key();
+        task.result_uri = result_uri.clone();
+        task.executor = executor.owner; // Attribute work to the executor account owner
         task.status = TaskStatus::Completed;
         
+        state_container.state_hash = result_hash;
+        state_container.state_uri = result_uri;
+        state_container.version += 1;
+
         executor.tasks_completed += 1;
-        
+
         emit!(TaskCompleted {
             task_id: task.id,
             executor: task.executor,
             result_hash,
         });
+
+        emit!(StateUpdated {
+            owner: state_container.owner,
+            new_hash: result_hash,
+            version: state_container.version,
+        });
+
+        Ok(())
+    }
+
+    /// Update a StateContainer directly (Fast-Path for Inline Ingestion).
+    pub fn update_state_pda(
+        ctx: Context<UpdateStatePda>,
+        previous_state_hash: [u8; 32],
+        result_hash: [u8; 32],
+        result_uri: String,
+    ) -> Result<()> {
+        let state_container = &mut ctx.accounts.state_container;
+        let executor = &mut ctx.accounts.executor;
+
+        require!(executor.active, CoordinatorError::ExecutorInactive);
+        require!(
+            state_container.state_hash == previous_state_hash,
+            CoordinatorError::StateHashMismatch
+        );
+
+        state_container.state_hash = result_hash;
+        state_container.state_uri = result_uri;
+        state_container.version += 1;
         
+        executor.tasks_completed += 1;
+
+        emit!(StateUpdated {
+            owner: state_container.owner,
+            new_hash: result_hash,
+            version: state_container.version,
+        });
+
+        Ok(())
+    }
+
+    pub fn request_reveal(ctx: Context<RequestReveal>) -> Result<()> {
+        let task = &mut ctx.accounts.task;
+        require!(task.status == TaskStatus::Completed, CoordinatorError::TaskNotCompleted);
+        task.status = TaskStatus::RevealRequested;
+        Ok(())
+    }
+
+    pub fn provide_reveal(ctx: Context<ProvideReveal>, reveal_data: String) -> Result<()> {
+        let task = &mut ctx.accounts.task;
+        require!(task.status == TaskStatus::RevealRequested, CoordinatorError::InvalidStatus);
+        
+        task.reveal_result = reveal_data;
+        task.status = TaskStatus::Revealed;
         Ok(())
     }
 
     pub fn challenge_task(ctx: Context<ChallengeTask>) -> Result<()> {
         let task = &mut ctx.accounts.task;
+        let executor = &mut ctx.accounts.executor;
+        let challenger = &ctx.accounts.challenger;
         
-        require!(task.status == TaskStatus::Completed, CoordinatorError::TaskNotCompleted);
+        // SECURITY: Only the original submitter can challenge their own task results in V1
+        require!(task.status == TaskStatus::Completed, CoordinatorError::InvalidStatus);
+        require!(task.submitter == challenger.key(), CoordinatorError::ExecutorUnauthorized);
         
+        // SLASHING: Transfer executor's stake to challenger
+        let amount = executor.stake;
+        **executor.to_account_info().lamports.borrow_mut() -= amount;
+        **challenger.to_account_info().lamports.borrow_mut() += amount;
+        
+        executor.stake = 0;
+        executor.active = false;
         task.status = TaskStatus::Challenged;
         
         emit!(TaskChallenged {
             task_id: task.id,
-            challenger: ctx.accounts.challenger.key(),
+            challenger: challenger.key(),
         });
-        
+
         Ok(())
     }
 }
@@ -180,12 +265,54 @@ pub struct SubmitTask<'info> {
 }
 
 #[derive(Accounts)]
-pub struct CompleteTask<'info> {
+pub struct RequestReveal<'info> {
+    #[account(mut, has_one = submitter)]
+    pub task: Account<'info, Task>,
+    pub submitter: Signer<'info>,
+}
+
+#[derive(Accounts)]
+pub struct ProvideReveal<'info> {
+    #[account(mut, has_one = executor)]
+    pub task: Account<'info, Task>,
+    pub executor: Signer<'info>,
+}
+
+#[derive(Accounts)]
+pub struct UpdateState<'info> {
     #[account(mut)]
     pub task: Account<'info, Task>,
-    #[account(mut)]
+    #[account(
+        mut,
+        has_one = owner @ CoordinatorError::ExecutorUnauthorized
+    )]
     pub executor: Account<'info, Executor>,
-    pub executor_signer: Signer<'info>,
+    #[account(
+        mut,
+        seeds = [b"state", task.submitter.as_ref()],
+        bump,
+    )]
+    pub state_container: Account<'info, StateContainer>,
+    pub owner: Signer<'info>,
+}
+
+#[derive(Accounts)]
+pub struct UpdateStatePda<'info> {
+    #[account(
+        mut,
+        seeds = [b"state", owner_key.as_ref()],
+        bump,
+    )]
+    pub state_container: Account<'info, StateContainer>,
+    /// The owner of the state container (not necessarily the signer).
+    /// CHECK: Used only for PDA seeds.
+    pub owner_key: UncheckedAccount<'info>,
+    #[account(
+        mut,
+        has_one = owner @ CoordinatorError::ExecutorUnauthorized
+    )]
+    pub executor: Account<'info, Executor>,
+    pub owner: Signer<'info>,
 }
 
 #[derive(Accounts)]
@@ -245,10 +372,17 @@ pub struct Executor {
 pub struct Task {
     pub id: u64,
     pub submitter: Pubkey,
+    pub target_owner: Pubkey, // NEW: Support shared state updates
     pub input_hash: [u8; 32],
+    #[max_len(128)]
+    pub input_uri: String,
     pub operation: u8,
     pub status: TaskStatus,
     pub result_hash: [u8; 32],
+    #[max_len(128)]
+    pub result_uri: String,
+    #[max_len(256)]
+    pub reveal_result: String,
     pub executor: Pubkey,
 }
 
@@ -275,9 +409,12 @@ pub struct StateContainer {
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, PartialEq, Eq, InitSpace)]
 pub enum TaskStatus {
     Pending,
+    Processing,
     Completed,
+    Failed,
+    RevealRequested,
+    Revealed,
     Challenged,
-    Resolved,
 }
 
 impl Default for TaskStatus {
@@ -300,6 +437,12 @@ pub enum CoordinatorError {
     PdaAlreadyInitialized,
     #[msg("State URI must start with local:// or ipfs://")]
     InvalidStateUri,
+    #[msg("Signer is not the owner of this executor account")]
+    ExecutorUnauthorized,
+    #[msg("Invalid task status for this operation")]
+    InvalidStatus,
+    #[msg("State hash mismatch! Deterministic chain broken.")]
+    StateHashMismatch,
 }
 
 #[event]
@@ -312,7 +455,7 @@ pub struct ExecutorRegistered {
 pub struct TaskSubmitted {
     pub task_id: u64,
     pub submitter: Pubkey,
-    pub input_hash: [u8; 32],
+    pub target_owner: Pubkey,
     pub operation: u8,
 }
 
@@ -334,4 +477,11 @@ pub struct TaskChallenged {
 #[event]
 pub struct StateInitialized {
     pub owner: Pubkey,
+}
+
+#[event]
+pub struct StateUpdated {
+    pub owner: Pubkey,
+    pub new_hash: [u8; 32],
+    pub version: u64,
 }
