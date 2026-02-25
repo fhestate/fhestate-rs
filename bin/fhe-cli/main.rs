@@ -13,25 +13,18 @@ struct Cli {
 
 #[derive(Subcommand, Debug)]
 enum Commands {
-    /// Generate FHE keypair
-    Keygen {
-        /// Output directory
-        #[arg(short, long, default_value = "fhe_keys")]
-        out_dir: String,
-    },
-    /// Generate Solana wallet
-    Wallet {
-        /// Output file path
-        #[arg(short, long, default_value = "deploy-wallet.json")]
-        output: String,
-    },
-    /// Run local encrypted sentence proof
-    Proof {
-        /// RPC URL
+
+    /// One-time setup: Initialize Registry and User State
+    Setup {
         #[arg(long, default_value = "https://api.devnet.solana.com")]
         rpc_url: String,
+        #[arg(long, default_value = "MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr")]
+        program: String,
+        #[arg(long, default_value = "deploy-wallet.json")]
+        wallet: String,
     },
-    /// Submit a task to the blockchain
+
+    /// Submit a task (Uses saved registry)
     Submit {
         #[arg(long, default_value = "https://api.devnet.solana.com")]
         rpc_url: String,
@@ -39,12 +32,26 @@ enum Commands {
         program: String,
         #[arg(long, default_value = "deploy-wallet.json")]
         wallet: String,
-        #[arg(short, long, default_value_t = 1)]
-        op: u8,
-        /// The real value to encrypt as FheUint32
         #[arg(short, long)]
         value: u32,
+        #[arg(long)]
+        target: Option<String>,
     },
+
+    /// Submit a small encrypted input directly (inline)
+    SubmitInput {
+        #[arg(long, default_value = "https://api.devnet.solana.com")]
+        rpc_url: String,
+        #[arg(long, default_value = "MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr")]
+        program: String,
+        #[arg(long, default_value = "deploy-wallet.json")]
+        wallet: String,
+        #[arg(short, long)]
+        value: u32,
+        #[arg(long)]
+        target: Option<String>,
+    },
+
     /// Initialize a StateContainer PDA for the user
     InitState {
         #[arg(long, default_value = "https://api.devnet.solana.com")]
@@ -54,6 +61,18 @@ enum Commands {
         #[arg(long, default_value = "deploy-wallet.json")]
         wallet: String,
     },
+
+    /// Request a reveal (decryption) for an FHE task
+    Reveal {
+        #[arg(long, default_value = "https://api.devnet.solana.com")]
+        rpc_url: String,
+        #[arg(long, default_value = "MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr")]
+        program: String,
+        #[arg(long, default_value = "deploy-wallet.json")]
+        wallet: String,
+        #[arg(short, long)]
+        task: String,
+    },
 }
 
 fn main() {
@@ -61,21 +80,30 @@ fn main() {
     let cli = Cli::parse();
 
     let result = match cli.command {
-        Commands::Keygen { out_dir } => commands::keygen(&out_dir),
-        Commands::Wallet { output } => commands::wallet(&output),
-        Commands::Proof { rpc_url } => commands::proof(&rpc_url),
-        Commands::Submit {
+        Commands::Setup {
             rpc_url,
             program,
             wallet,
+        } => commands::setup(&rpc_url, &program, &wallet),
             op,
             value,
-        } => commands::submit_task(&rpc_url, &program, &wallet, op, value),
+            target,
+        } => commands::submit_task(&rpc_url, &program, &wallet, op, value, None, target.as_deref()),
+            op,
+            value,
+            target,
+        } => commands::submit_input(&rpc_url, &program, &wallet, op, value, target.as_deref()),
         Commands::InitState {
             rpc_url,
             program,
             wallet,
         } => commands::init_state(&rpc_url, &program, &wallet),
+        Commands::Reveal {
+            rpc_url,
+            program,
+            wallet,
+            task,
+        } => commands::reveal_task(&rpc_url, &program, &wallet, &task),
     };
 
     if let Err(e) = result {
