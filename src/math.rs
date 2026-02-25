@@ -43,6 +43,12 @@ impl FheMath {
         a ^ b
     }
 
+    #[inline]
+    pub fn cmp(a: &FheUint32, b: &FheUint32) -> FheUint32 {
+        // Returns 1 if a < b, else 0
+        a.lt(b).cast_into()
+    }
+
     // ═══════════════════════════════════════════════════════════════════
     // SCALAR OPERATIONS
     // ═══════════════════════════════════════════════════════════════════
@@ -126,6 +132,7 @@ impl FheMath {
             ops::ADD => Some(Self::add(a, b)),
             ops::SUB => Some(Self::sub(a, b)),
             ops::MUL => Some(Self::mul(a, b)),
+            ops::CMP => Some(Self::cmp(a, b)),
             ops::AND => Some(Self::bitand(a, b)),
             ops::OR => Some(Self::bitor(a, b)),
             ops::XOR => Some(Self::bitxor(a, b)),
