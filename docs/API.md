@@ -108,7 +108,20 @@ cargo run --bin fhe-cli -- submit [OPTIONS]
 - `--rpc-url <URL>`: Solana RPC (Default: `https://api.devnet.solana.com`)
 - `--program <ID>`: Program ID (Default: `MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr`)
 - `--wallet <PATH>`: Keypair file (Default: `./deploy-wallet.json`)
-- `--op <NUM>`: Operation ID (Default: `1` for Shift)
+- `--op <NUM>`: Operation ID (Default: `1` = SUB). See op codes below.
+- `--value <NUM>`: Plaintext `u32` value to encrypt and submit
+
+**Operation codes:**
+
+| Code | Name | Description |
+|------|------|-------------|
+| `0` | `ADD` | Homomorphic addition |
+| `1` | `SUB` | Homomorphic subtraction (default) |
+| `2` | `MUL` | Homomorphic multiplication (~800ms) |
+| `3` | `CMP` | Returns encrypted `1` if `a < b`, else `0` |
+| `4` | `AND` | Bitwise AND |
+| `5` | `OR`  | Bitwise OR |
+| `6` | `XOR` | Bitwise XOR |
 
 **Real Output:**
 ```text
@@ -190,10 +203,14 @@ The crypto-math engine. Supports operations on `FheUint8`, `FheUint32`, and `Fhe
 | `add` | Homomorphic Addition | `FheMath::add(&a, &b)` |
 | `sub` | Homomorphic Subtraction | `FheMath::sub(&a, &b)` |
 | `mul` | Homomorphic Multiplication | `FheMath::mul(&a, &b)` |
+| `cmp` | Less-than: encrypted `1` if `a < b`, else `0` | `FheMath::cmp(&a, &b)` |
 | `bitand`| Bitwise AND | `FheMath::bitand(&a, &b)` |
 | `bitor` | Bitwise OR | `FheMath::bitor(&a, &b)` |
 | `bitxor`| Bitwise XOR | `FheMath::bitxor(&a, &b)` |
-| `add_scalar` | Add unencrypted integer | `FheMath::add_scalar(&a, 10)` |
+| `add_scalar` | Add plaintext `u32` to ciphertext | `FheMath::add_scalar(&a, 10)` |
+| `sub_scalar` | Subtract plaintext `u32` | `FheMath::sub_scalar(&a, 5)` |
+| `mul_scalar` | Multiply by plaintext `u32` | `FheMath::mul_scalar(&a, 3)` |
+| `execute_op` | Dispatch by op code (used by node internally) | `FheMath::execute_op(0, &a, &b)` |
 
 **Encryption & Decryption Helpers:**
 ```rust
@@ -202,21 +219,49 @@ use fhestate_rs::FheMath;
 // Encrypt
 let ct_8  = FheMath::encrypt_u8(42, &client_key);
 let ct_32 = FheMath::encrypt_u32(1000, &client_key);
+let ct_64 = FheMath::encrypt_u64(9999999, &client_key);
 
 // Decrypt
-let val = FheMath::decrypt_u8(&ct_8, &client_key);
+let val_8  = FheMath::decrypt_u8(&ct_8, &client_key);
+let val_32 = FheMath::decrypt_u32(&ct_32, &client_key);
+let val_64 = FheMath::decrypt_u64(&ct_64, &client_key);
+```
+
+**Serialization & Hashing:**
+```rust
+// Serialize FheUint32 ciphertext to bytes (for cache storage)
+let bytes: Vec<u8> = FheMath::serialize_u32(&ct_32)?;
+
+// Deserialize from bytes (used by node when loading from cache)
+let ct: FheUint32 = FheMath::deserialize_u32(&bytes)?;
+
+// Compute SHA256 proof hash (posted to chain as state_hash)
+let hash: [u8; 32] = FheMath::hash(&bytes);
+let hash_hex: String = FheMath::hash_hex(&bytes); // 64-char hex string
 ```
 
 #### `LocalCache`
 *(Location: `src/cache.rs`)*
 
-In-memory storage for testing FHE operations without blockchain latency.
+File-based, content-addressed ciphertext cache. Stores ciphertexts as `<sha256>.bin` files under `.fhe_cache/` using SHA256 of the content as the filename (full 32-byte hash → 64-char hex). Returns `local://<hash>` URIs which are posted on-chain as the `state_uri`. Also supports resolving `ipfs://` URIs via a simulated IPFS gateway (real IPFS node integration planned).
 
 ```rust
 use fhestate_rs::LocalCache;
 
-let mut cache = LocalCache::new();
-cache.insert("user_balance", encrypted_balance);
+let cache = LocalCache::new(".fhe_cache");
+
+// Store ciphertext bytes — returns content-addressed URI
+let uri = cache.store(&ciphertext_bytes)?;
+// uri = "local://a3f9b2c1..." (64-char sha256 hex)
+
+// Load by URI
+let bytes = cache.load(&uri)?;
+
+// Check existence
+let exists = cache.exists(&uri);
+
+// Resolve any URI scheme (local:// or ipfs://)
+let bytes = cache.resolve(&uri)?;
 ```
 
 ---
@@ -227,16 +272,51 @@ cache.insert("user_balance", encrypted_balance);
 
 Standardized types used across the FHESTATE ecosystem.
 
-| Type | Bits | FHE Equivalent | Description |
-| :--- | :--- | :--- | :--- |
-| `u8` | 8 | `FheUint8` | Single byte encryption (standard) |
-| `u16` | 16 | `FheUint16` | 16-bit integer (large) |
-| `u32` | 32 | `FheUint32` | 32-bit integer (very large) |
-| `u64` | 64 | `FheUint64` | 64-bit integer (extreme latency) |
+| Type | Bits | FHE Equivalent | Ciphertext Size | Description |
+| :--- | :--- | :--- | :--- | :--- |
+| `u8` | 8 | `FheUint8` | ~4 KB | Single byte — used for demo (string encryption) |
+| `u32` | 32 | `FheUint32` | ~32 KB | Primary computation type — all `FheMath` ops use this |
+| `u64` | 64 | `FheUint64` | ~64 KB | Available for encrypt/decrypt; higher latency |
 
----
+> **Note:** `FheUint16` is not currently implemented. All homomorphic math operations in `FheMath` (`add`, `sub`, `mul`, `bitand`, `bitor`, `bitxor`, `cmp`, scalar ops) operate on `FheUint32`. The `execute_op()` dispatch function accepts an op code byte and two `FheUint32` ciphertexts.
 
-### Functions
+#### `StateTransition`
+*(Location: `src/state.rs`)*
+
+The off-chain FHE state machine. Used internally by `fhe-node` to apply homomorphic operations to a user's encrypted state. Handles bootstrapping fresh accounts, loading existing state from cache, applying the op, storing the new state, and returning the SHA256 proof hash.
+
+```rust
+use fhestate_rs::StateTransition;
+
+// Apply op to existing state (or bootstrap if state_uri is None)
+let (new_uri, result_hash) = StateTransition::apply(
+    &cache,
+    Some("local://a3f9b2..."),  // current state URI (None for fresh account)
+    &input_ciphertext_bytes,    // serialised FheUint32
+    ops::ADD,                   // operation code
+)?;
+// new_uri     = "local://<new_sha256>" — stored in StateContainer.state_uri
+// result_hash = [u8; 32] SHA256 — posted to chain as StateContainer.state_hash
+```
+
+**Fresh account bootstrap**: When `state_uri` is `None`, the input ciphertext itself becomes the initial state (no operation is applied). This sets up the state for the first real computation.
+
+#### `FheError` / `FheResult`
+*(Location: `src/errors.rs`)*
+
+All SDK functions return `FheResult<T>` which is `Result<T, FheError>`. Error variants:
+
+| Variant | Meaning |
+|---------|---------|
+| `KeyNotFound(path)` | Key file does not exist at path |
+| `CacheMiss(uri)` | URI not found in local cache |
+| `InvalidOperation(op)` | Unknown op code byte passed to `execute_op` |
+| `ComputationFailed(msg)` | FHE operation error (e.g. empty input) |
+| `Serialization(e)` | `bincode` serialize/deserialize error |
+| `Io(e)` | File system error |
+| `RpcError(msg)` | Solana RPC call failed |
+| `TransactionFailed(msg)` | Solana transaction rejected |
+| `TaskTimeout(secs)` | Task exceeded `TASK_TIMEOUT_SECS` (600s) |
 
 #### `submit_task`
 Submit an FHE task to the Solana blockchain.
@@ -259,7 +339,22 @@ pub fn generate_proof(ciphertext: &FheUint8) -> Result<[u8; 32], Error>
 
 ---
 
-## RPC Endpoints
+## Constants Reference
+
+Defined in `src/constants.rs`. Import with `use fhestate_rs::constants::*;`
+
+| Constant | Value | Description |
+|----------|-------|-------------|
+| `SECURITY_LEVEL` | `128` | FHE security parameter in bits |
+| `DEFAULT_RPC` | `https://api.devnet.solana.com` | Default Solana RPC endpoint |
+| `KEY_DIR` | `fhe_keys` | Default key storage directory |
+| `CACHE_DIR` | `.fhe_cache` | Default ciphertext cache directory |
+| `TASK_TIMEOUT_SECS` | `600` | Max seconds before a task is considered timed out |
+| `POLL_INTERVAL_SECS` | `2` | Node polling interval in seconds |
+| `CT_U8_SIZE` | `8192` | Estimated `FheUint8` ciphertext size in bytes |
+| `CT_U32_SIZE` | `32768` | Estimated `FheUint32` ciphertext size in bytes |
+
+---
 
 FHESTATE interacts with Solana using standard JSON-RPC.
 

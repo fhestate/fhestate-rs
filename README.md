@@ -6,33 +6,32 @@
 
 [![FHESTATE](https://img.shields.io/badge/FHESTATE-v0.1.0-8A2BE2?style=for-the-badge&logo=rocket&logoColor=white)](https://github.com/fhestate/fhestate-rs)
 [![Solana](https://img.shields.io/badge/Solana-Devnet-14F195?style=for-the-badge&logo=solana&logoColor=black)](https://solana.com)
-[![TFHE-rs](https://img.shields.io/badge/TFHE-Zama-orange?style=for-the-badge&logo=rust&logoColor=white)](https://github.com/zama-ai/tfhe-rs)
+[![TFHE-rs](https://img.shields.io/badge/TFHE--rs-v0.7.3-orange?style=for-the-badge&logo=rust&logoColor=white)](https://github.com/zama-ai/tfhe-rs)
 [![License](https://img.shields.io/badge/License-MIT-blue?style=for-the-badge)](LICENSE)
 
-[**Quick Start**](docs/QUICKSTART.md) • [**Architecture**](docs/ARCHITECTURE.md) • [**Examples**](docs/EXAMPLES.md)
-
-</div>
+[**Quick Start**](docs/QUICKSTART.md) • [**Documentation**](https://docs.fhestate.org) • [**API Reference**](docs/API.md) • [**Examples**](docs/EXAMPLES.md)
 
 ---
 
 ## 🌟 Overview
 
-**FHESTATE** is the first practical implementation of Fully Homomorphic Encryption (FHE) integrated with Solana blockchain. It enables **private computation with public verification** - allowing you to perform computations on encrypted data while posting cryptographic proofs to Solana for transparency and auditability.
+**FHESTATE** is a practical implementation of Fully Homomorphic Encryption (FHE) integrated with the Solana blockchain. It enables **private computation with public verification** — allowing you to perform operations on encrypted data while posting cryptographic proofs on-chain for transparency and auditability.
 
 ### What Makes FHESTATE Unique?
 
-- 🔒 **True Privacy**: Compute on encrypted data using TFHE (Fully Homomorphic Encryption)
-- ⛓️ **Blockchain Verified**: Post cryptographic proofs to Solana for public verification
-- 🚀 **Production Ready**: Working implementation with real on-chain transactions
-- 📊 **Transparent**: All computations are verifiable through SHA256 hashes and blockchain receipts
+- 🔒 **True Privacy**: Compute on encrypted data using TFHE-rs (Zama). The node never sees plaintext.
+- 📂 **Persistent State PDAs**: Encrypted user state persists on-chain via Program Derived Addresses, keyed to each submitter.
+- 🚀 **Dual Ingestion Paths**: Submit tasks via off-chain cache URI (standard) or embed small ciphertexts directly in the transaction (inline fast-path).
+- ⛓️ **Deterministic Transition Engine**: Every state update is SHA256 hash-chained — rollbacks and unauthorized transitions are rejected on-chain.
+- 📊 **Verifiable Commitments**: Every computation produces a SHA256 proof hash posted back to the blockchain.
 
 ---
 
 ## 🔮 The Concept: Public Verification, Private Data
 
-FHESTATE enables a new paradigm: **Trustless Confidential Computing**. 
+FHESTATE enables **Trustless Confidential Computing**.
 
-Unlike Zero-Knowledge Proofs (which prove a statement *about* data), **Full Homomorphic Encryption (FHE)** allows the blockchain to actually *process* the data without ever seeing it.
+Unlike Zero-Knowledge Proofs (which prove a statement *about* data without revealing it), **Fully Homomorphic Encryption** allows the server to actually *compute on* the data without ever seeing it in plaintext.
 
 ### High-Level Overview
 
@@ -42,11 +41,11 @@ Unlike Zero-Knowledge Proofs (which prove a statement *about* data), **Full Homo
 
 ## 🎯 Use Cases
 
-- **Private Voting**: Vote on encrypted ballots, count votes homomorphically
-- **Sealed-Bid Auctions**: Submit encrypted bids, determine winner without revealing bids
-- **Confidential Trading**: Execute trades on encrypted order books
+- **Private Voting**: Tally encrypted ballots homomorphically without revealing individual votes
+- **Sealed-Bid Auctions**: Determine the winner without exposing any bid amounts
+- **Confidential Trading**: Execute operations on encrypted order books
 - **Privacy-Preserving Analytics**: Compute statistics on encrypted datasets
-- **Secure Multi-Party Computation**: Collaborative computation without revealing inputs
+- **Secure Multi-Party Computation**: Collaborative computation without revealing individual inputs
 
 ---
 
@@ -58,21 +57,72 @@ Unlike Zero-Knowledge Proofs (which prove a statement *about* data), **Full Homo
 
 ### Technical Workflow
 
-The FHESTATE protocol enables a **Trustless Confidential Computing** cycle:
+The FHESTATE protocol implements a **Trustless Confidential Computing** cycle:
 
-1.  **Client-Side Encryption**: Inputs are encrypted locally using TFHE (Zama). The private key *never* leaves the client.
-2.  **Provenance Verification**: A SHA256 hash of the ciphertext is posted to Solana to prove the data's existence and immutability at a specific block time.
-3.  **Encrypted Execution**: The `fhe-node` observes the chain, retrieves the encrypted payload, and performs mathematical operations (e.g., addition, logic) *blindly* on the ciphertexts.
-4.  **Verifiable Result**: The node generates a new ciphertext result and posts its cryptographic proof back to the chain.
-5.  **Owner Decryption**: Only the original user (holder of the private key) can decrypt the result.
+1. **Client-Side Encryption**: Inputs are encrypted locally using TFHE-rs. The private key *never* leaves the client.
+2. **Provenance Commitment**: A SHA256 hash of the ciphertext is posted to Solana, anchoring the data to a specific block time.
+3. **Encrypted Execution**: `fhe-node` polls the chain, retrieves the encrypted payload from cache, and performs homomorphic operations *blindly* on the ciphertexts using the server key.
+4. **State Chaining**: The node computes a new SHA256 proof hash and calls `update_state` or `update_state_pda` on-chain. The Coordinator program enforces `previous_state_hash == current_state_hash` before accepting the update.
+5. **Owner Decryption**: Only the original user (holder of `client_key.bin`) can decrypt the result.
 
-### 2. Key Management & Roles
-
-Understanding who holds the keys is crucial for the security model.
+### Key Management
 
 ![Key Management & Roles](assets/key_management.png)
 
+| Key | Visibility | Held By | Purpose |
+|-----|-----------|---------|---------|
+| `client_key.bin` | 🔴 SECRET | User only | Encrypt inputs, decrypt results |
+| `server_key.bin` | 🟢 Public | Node | Perform homomorphic math on ciphertexts |
+
 **Learn more:** [Architecture Documentation](docs/ARCHITECTURE.md)
+
+---
+
+## 🛠️ Technical Implementation
+
+### 1. Persistent State PDAs
+
+Every user's encrypted state is stored in a Program Derived Address (PDA) with seeds `[b"state", owner_pubkey]`. The PDA is deterministic — given any wallet address, anyone can compute its state account address without an on-chain lookup:
+
+```rust
+// programs/coordinator/src/lib.rs
+#[account]
+pub struct StateContainer {
+    pub owner: Pubkey,
+    pub state_hash: [u8; 32], // SHA256 of current ciphertext bytes
+    pub state_uri: String,    // Off-chain URI: "local://<hash>" or "ipfs://<cid>"
+    pub version: u64,         // Monotonically incrementing — incremented on every update
+}
+```
+
+The `state_hash` field starts as all-zeros (uninitialized). Once the first FHE computation is posted, it becomes the SHA256 of the result ciphertext bytes, and every subsequent update must supply the current `state_hash` as `previous_state_hash` — creating an unbreakable hash chain.
+
+### 2. Deterministic State Chaining
+
+Every update must supply the `previous_state_hash`. The Coordinator program enforces this on-chain:
+
+```rust
+require!(
+    state_container.state_hash == previous_state_hash,
+    CoordinatorError::StateHashMismatch
+);
+```
+
+This makes state rollbacks and replay attacks impossible.
+
+### 3. Dual Ciphertext Ingestion
+
+**Standard Path** — for any value size:
+```bash
+cargo run --bin fhe-cli -- submit --op 0 --value 42
+```
+The CLI encrypts the value into a `FheUint32` ciphertext (~32 KB), serializes it with `bincode`, stores it in the local content-addressed cache (`.fhe_cache/<sha256>.bin`), and posts the `local://<sha256>` URI to Solana via the Coordinator program's `submit_task` instruction. The `fhe-node` polls for new `Task` accounts, resolves the URI from cache, and runs the homomorphic operation.
+
+**Inline Fast-Path** — for small inputs (note: Solana transactions are capped at 1232 bytes total):
+```bash
+cargo run --bin fhe-cli -- submit-input --op 0 --value 42
+```
+The CLI encrypts the value, caches it locally by SHA256 hash, and embeds the ciphertext bytes directly in the `submit_input` instruction data. Because `FheUint32` ciphertexts are ~32 KB, this path will exceed Solana's transaction size limit for standard integer types — it is designed for future support of smaller FHE types (e.g. `FheBool`). The node detects the `StateContainer` version bump, fetches the transaction from chain to extract the op code, and resolves the ciphertext from local cache via the `inline://<hash>` URI stored in the PDA.
 
 ---
 
@@ -82,199 +132,176 @@ Understanding who holds the keys is crucial for the security model.
 
 - **Rust**: 1.70 or higher
 - **Solana CLI**: 1.18 or higher
-- **Node.js**: 16+ (optional, for examples)
 
 ### Installation
 
 ```bash
-# Clone the repository
 git clone https://github.com/fhestate/fhestate-rs.git
 cd fhestate-rs
-
-# Build the project
 cargo build --release
 ```
 
-### 1. Generate FHE Keys (Use release mode for speed)
+### 1. Generate FHE Keys
+
 ```bash
+# Run in release mode — key generation takes 30-60s
 cargo run --release --bin fhe_proof -- keygen
 ```
 
-### 2. Run FHE Demo
+Output:
+- `fhe_keys/client_key.bin` — Your **secret** key. Never share this.
+- `fhe_keys/server_key.bin` — The **public** server key used by the node (~100 MB).
+
+### 2. Run the Local Demo
+
 ```bash
 cargo run --release --bin fhe_proof -- demo
 ```
 
-### 3. Submit to Solana (Default Program)
+Encrypts the string `"Solana Privacy Ops"` byte-by-byte using `FheUint8`, performs a homomorphic `+1` shift on each encrypted character, then decrypts and verifies the result.
+
+### 3. Setup On-Chain State
+
 ```bash
-# Uses our deployed program on Devnet - works immediately!
-cargo run --bin fhe-cli -- submit --op 1
+# Configure wallet
+solana-keygen new --outfile deploy-wallet.json --no-bip39-passphrase
+solana airdrop 2 -k deploy-wallet.json
+
+# Initialize your StateContainer PDA
+cargo run --bin fhe-cli -- setup
+```
+
+### 4. Submit a Private Computation
+
+```bash
+# Standard path (works for any value)
+cargo run --release --bin fhe-cli -- submit --op 0 --value 42
+
+# Inline fast-path (embeds ciphertext in transaction)
+cargo run --release --bin fhe-cli -- submit-input --op 0 --value 42
+```
+
+### 5. Start the Executor Node
+
+```bash
+cargo run --release --bin fhe-node -- --program-id <YOUR_PROGRAM_ID>
 ```
 
 ---
 
 ## 🔧 Program Deployment Options
 
-FHESTATE offers **two deployment options**:
-
 ### Option 1: Use Default Program (Recommended for Quick Start) ✅
 
-**No deployment needed** - the SDK uses a pre-deployed Coordinator program on Solana Devnet.
+The SDK defaults to the SPL Memo program (`MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr`) for demo purposes. No deployment needed.
 
-**Advantages:**
-- ⚡ Instant start - no setup required
-- 🎯 Perfect for testing, demos, hackathons
-- 📚 All documentation examples work out-of-box
-- 🆓 Free to use on Devnet
-
-**Default Program ID:** `MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr` (SPL Memo for demo)
-
----
-
-### Option 2: Deploy Your Own Program (Advanced) 🔒
-
-For **production use or custom modifications**, deploy your own instance:
+### Option 2: Deploy Your Own Coordinator Program 🔒
 
 ```bash
-# Build the program
 cd programs/coordinator
 cargo build-bpf
 
-# Deploy to Devnet
 solana program deploy target/deploy/coordinator.so
-
 # Note the Program ID from output
-# Example: Program Id: 7xKH...9pQ2
-```
 
-**Use your Program ID:**
-```bash
 cargo run --bin fhe-cli -- submit \
-    --program YOUR_PROGRAM_ID \
-    --op 1
+    --program <YOUR_PROGRAM_ID> \
+    --op 0 --value 42
 ```
 
-**Advantages:**
-- 🔐 Full control and ownership
-- ⚙️ Customize program logic
-- 🏗️ True decentralization
-- 🚀 Production-ready for Mainnet
-
-**When to deploy your own:**
-- Production applications
-- Need custom FHE operations
-- Privacy/security requirements
-- Mainnet deployment
+The Coordinator program provides the full protocol: `initialize`, `register_executor`, `submit_task`, `initialize_state`, `submit_input`, `update_state`, `update_state_pda`, `request_reveal`, `provide_reveal`, and `challenge_task`.
 
 ---
 
 ## 📦 Components
 
-### 1. **fhe-cli** - Command Line Interface
-Submit FHE tasks to Solana blockchain.
+### `fhe_proof` — Local Verification Tool
 
 ```bash
-cargo run --bin fhe-cli -- submit --op 1
+cargo run --release --bin fhe_proof -- keygen    # Generate keys
+cargo run --release --bin fhe_proof -- demo      # Run local FHE demo
 ```
 
-### 2. **fhe-node** - Background Executor
-Listen for and process FHE tasks from blockchain.
+### `fhe-cli` — Command Line Interface
 
 ```bash
-cargo run --bin fhe-node
+cargo run --bin fhe-cli -- setup                          # One-time setup
+cargo run --bin fhe-cli -- init-state                     # Initialize StateContainer PDA
+cargo run --bin fhe-cli -- submit --op 0 --value 42       # Submit standard task
+cargo run --bin fhe-cli -- submit-input --op 0 --value 42 # Submit inline input
+cargo run --bin fhe-cli -- reveal --task <TASK_PUBKEY>    # Request result reveal
 ```
 
-### 3. **fhe_proof** - Standalone Demo
-Generate FHE keys and run local demonstrations.
+**Operation codes:**
+
+| Code | Operation | Notes |
+|------|-----------|-------|
+| `0` | ADD | Homomorphic addition — fast (~100ms) |
+| `1` | SUB | Homomorphic subtraction |
+| `2` | MUL | Homomorphic multiplication — expensive (~800ms+, requires relinearization) |
+| `3` | CMP | Returns encrypted `1` if `a < b`, else encrypted `0` |
+| `4` | AND | Bitwise AND |
+| `5` | OR  | Bitwise OR |
+| `6` | XOR | Bitwise XOR |
+
+### `fhe-node` — Background Executor
 
 ```bash
-cargo run --release --bin fhe_proof -- demo
+cargo run --release --bin fhe-node \
+    --rpc-url https://api.devnet.solana.com \
+    --program-id <PROGRAM_ID> \
+    --wallet deploy-wallet.json \
+    --server-key fhe_keys/server_key.bin
 ```
 
-**Full API:** [API Documentation](docs/API.md)
+Polls Solana every `2 seconds` (configurable via `POLL_INTERVAL_SECS`) for new `Task` accounts and `StateContainer` version bumps. For each pending task it:
+1. Resolves the input ciphertext from local cache (via `local://`, `ipfs://`, or `inline://` URI)
+2. Loads the current state ciphertext from the submitter's `StateContainer` PDA
+3. Applies the FHE operation using `StateTransition::apply()` — which runs `FheMath::execute_op()` on the encrypted data using the loaded `ServerKey`
+4. Serializes and stores the new state ciphertext in `.fhe_cache/`
+5. Posts the new `state_hash` and `state_uri` back to the chain via `update_state` or `update_state_pda`
+
+The node holds **only** `server_key.bin` — it performs all computation blindly and never has access to `client_key.bin`.
 
 ---
 
-## 📚 Documentation
-
-| Document | Description |
-|----------|-------------|
-| [Quick Start Guide](docs/QUICKSTART.md) | Get up and running in 5 minutes |
-| [Architecture Overview](docs/ARCHITECTURE.md) | Deep dive into system design |
-| [API Reference](docs/API.md) | Complete API documentation |
-| [Examples](docs/EXAMPLES.md) | Code examples and tutorials |
-| [Contributing](docs/CONTRIBUTING.md) | How to contribute to the project |
-| [FAQ](docs/FAQ.md) | Frequently asked questions |
-
----
-
-## 🎓 How It Works
-
-### 1. **Encryption** (Client-Side)
-```rust
-let ct = FheUint8::encrypt(42, &client_key);
-// Data is now encrypted, ready for computation
-```
-
-### 2. **Homomorphic Computation** (Server-Side)
-```rust
-let ct_plus_one = server_key.add(&ct, &FheUint8::encrypt(1, &client_key));
-// Computation happens on encrypted data!
-```
-
-### 3. **Blockchain Proof** (On-Chain)
-```rust
-let mut hasher = Sha256::new();
-hasher.update(&bincode::serialize(&ct)?);
-let proof = hasher.finalize();
-// Post proof to Solana
-```
-
-### 4. **Decryption & Verification** (Client-Side)
-```rust
-let result: u8 = ct_plus_one.decrypt(&client_key);
-assert_eq!(result, 43); // ✅ Verified!
-```
-
-**Detailed explanation:** [Architecture Documentation](docs/ARCHITECTURE.md)
-
----
-
-## 🔬 Example: Private Addition
+## 🎓 SDK Usage
 
 ```rust
-use fhestate_rs::*;
+use fhestate_rs::{KeyManager, FheMath, activate_server_key};
 
-// 1. Generate keys
-let (client_key, server_key) = generate_keys();
+// 1. Load keys
+let keys = KeyManager::load("./fhe_keys")?;
+activate_server_key(&keys.server_key);
 
 // 2. Encrypt inputs
-let a = FheUint8::encrypt(15, &client_key);
-let b = FheUint8::encrypt(27, &client_key);
+let a = FheMath::encrypt_u32(100, &keys.client_key);
+let b = FheMath::encrypt_u32(200, &keys.client_key);
 
-// 3. Compute on encrypted data
-set_server_key(server_key);
-let result = a + b;
+// 3. Compute homomorphically (no decryption occurs)
+let sum = FheMath::add(&a, &b);
 
-// 4. Decrypt and verify
-let plaintext: u8 = result.decrypt(&client_key);
-assert_eq!(plaintext, 42); // ✅ 15 + 27 = 42
+// 4. Decrypt locally
+let result = FheMath::decrypt_u32(&sum, &keys.client_key);
+assert_eq!(result, 300);
 ```
 
-**More examples:** [Examples Documentation](docs/EXAMPLES.md)
+**Supported operations on `FheUint32`:** `add`, `sub`, `mul`, `bitand`, `bitor`, `bitxor`, `cmp`, `add_scalar`, `sub_scalar`, `mul_scalar`
+
+**Supported types:** `FheUint8`, `FheUint32`, `FheUint64`
+
+> `FheUint8` is used for the demo (byte-level string operations). `FheUint32` is the primary type for state computation — all `FheMath` operations operate on `FheUint32`. `FheUint64` is available for encryption/decryption but has higher latency.
 
 ---
 
 ## 🌐 Verified Transactions
 
-Here are real, verified FHE transactions on Solana Devnet:
+Real FHE transactions on Solana Devnet:
 
 | Date | Operation | Transaction Hash | Status |
 |------|-----------|------------------|--------|
 | 2026-01-28 | FHE Task Submission | [`4w9MESyqbMTkvNZAVn1uLBz1tD8onSuwEqh4yjaxrZLaUvKM7Wf63etQcjvC6XMuRso7auGpH6chFQC6YGyAJ41f`](https://explorer.solana.com/tx/4w9MESyqbMTkvNZAVn1uLBz1tD8onSuwEqh4yjaxrZLaUvKM7Wf63etQcjvC6XMuRso7auGpH6chFQC6YGyAJ41f?cluster=devnet) | ✅ Confirmed |
-| 2026-01-28 | Input: "SKD is ready" | [`454d1RTd6vbriUF46JLbomNZuX65aRMxuLDGmqWAq7oDUgFqaAtspsRdTj9yz6ofbwAA7uKrnuDxDKhE7Nw4X2v4`](https://explorer.solana.com/tx/454d1RTd6vbriUF46JLbomNZuX65aRMxuLDGmqWAq7oDUgFqaAtspsRdTj9yz6ofbwAA7uKrnuDxDKhE7Nw4X2v4?cluster=devnet) | ✅ Confirmed |
-
-All transactions are **publicly verifiable** on Solana Explorer.
+| 2026-01-28 | Inline Input Submission | [`454d1RTd6vbriUF46JLbomNZuX65aRMxuLDGmqWAq7oDUgFqaAtspsRdTj9yz6ofbwAA7uKrnuDxDKhE7Nw4X2v4`](https://explorer.solana.com/tx/454d1RTd6vbriUF46JLbomNZuX65aRMxuLDGmqWAq7oDUgFqaAtspsRdTj9yz6ofbwAA7uKrnuDxDKhE7Nw4X2v4?cluster=devnet) | ✅ Confirmed |
 
 ---
 
@@ -282,46 +309,60 @@ All transactions are **publicly verifiable** on Solana Explorer.
 
 | Operation | Time (avg) | Notes |
 |-----------|-----------|-------|
-| Key Generation | ~10s | One-time setup |
-| Encryption (per byte) | ~50ms | Client-side |
-| Addition (encrypted) | ~100ms | Server-side |
-| Decryption (per byte) | ~50ms | Client-side |
-| Blockchain Submission | ~13s | Network dependent |
+| Key Generation | ~30-60s | One-time setup, CPU intensive |
+| Encrypt `FheUint8` | ~50ms | Client-side |
+| Encrypt `FheUint32` | ~50ms | Client-side, ~32 KB ciphertext |
+| Homomorphic ADD | ~100ms | Server-side on encrypted data |
+| Homomorphic MUL | ~800ms+ | Requires relinearization |
+| Blockchain Submission | ~5-13s | Network dependent |
 
-**Note**: FHE operations are computationally intensive. This is a fundamental tradeoff for achieving perfect privacy.
+> FHE operations are computationally intensive by design. This is the fundamental tradeoff for achieving mathematically provable privacy.
 
 ---
 
-## 🏰 Security & Assurance
+## 🏰 Security Model
 
-FHESTATE is built on **cutting-edge cryptographic primitives** and is currently in its **Devnet Beta** phase.
-
-### Core Security Model
-*   **Privacy by Design**: Data remains encrypted at all times—during transit, storage, and *even during computation*.
-*   **Trust Minimization**: The server/node never sees private keys. It operates blindly on data it cannot read.
-*   **Auditable History**: Every step of the computation leaves an immutable trace on the Solana blockchain.
+- **Privacy by Design**: Data remains encrypted during transit, storage, and *computation*. The `fhe-node` only holds `server_key.bin` — it operates blindly on ciphertexts it cannot read.
+- **Trust Minimization**: Even if the node is compromised, the attacker sees only random-looking lattice noise. Without `client_key.bin`, decryption is computationally infeasible.
+- **Auditable History**: Every state transition leaves an immutable, hash-chained trace on Solana. The `version` counter is monotonically increasing and the `state_hash` chain cannot be forged or rolled back.
+- **Replay Attack Prevention**: Each `update_state` call requires `previous_state_hash == state_container.state_hash`. Any replayed or out-of-order transaction will fail with `StateHashMismatch`.
+- **128-bit Security**: TFHE-rs uses lattice-based cryptography (Learning With Errors) with 128-bit quantum-resistant parameters. IND-CPA secure by construction.
+- **Staking & Slashing**: Executors must stake SOL via `register_executor`. If a fraudulent result is submitted, the original submitter can call `challenge_task` which slashes the executor's stake to zero and transfers it to the challenger.
 
 > [!NOTE]
-> This SDK is currently optimized for **research and development**. While the FHE cryptography (TFHE-rs) is production-grade, the coordination layer is currently in Beta. For high-value Mainnet deployments, we recommend contacting our team for a tailored security review.
+> FHESTATE is currently in **Devnet Beta**. The FHE cryptography (TFHE-rs v0.7.3) is production-grade. The coordination layer is in active development and should not be used for high-value Mainnet deployments without a security review.
+
+---
+
+## 📚 Documentation
+
+| Document | Description |
+|----------|-------------|
+| [Quick Start Guide](docs/QUICKSTART.md) | Get running in 5 minutes |
+| [Architecture Overview](docs/ARCHITECTURE.md) | Deep dive into system design |
+| [API Reference](docs/API.md) | Complete SDK and CLI reference |
+| [Examples](docs/EXAMPLES.md) | Code examples for common use cases |
+| [FAQ](docs/FAQ.md) | Technical questions answered |
+| [Contributing](docs/CONTRIBUTING.md) | How to contribute |
 
 ---
 
 ## 📜 License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+MIT License — see [LICENSE](LICENSE) for details.
 
 ---
 
 ## 🙏 Acknowledgments
 
-- **Zama**: For the incredible [TFHE-rs](https://github.com/zama-ai/tfhe-rs) library
-- **Solana**: For the high-performance blockchain infrastructure
-- **Rust Community**: For amazing tooling and ecosystem
+- **Zama**: For the [TFHE-rs](https://github.com/zama-ai/tfhe-rs) library
+- **Solana**: For high-performance blockchain infrastructure
+- **Rust Community**: For exceptional tooling and ecosystem
 
 ---
 
 ## 📞 Contact & Support
-
+- **Documentation**: [Comprehensive Technical Specs](https://docs.fhestate.org)
 - **GitHub Issues**: [Report bugs or request features](https://github.com/fhestate/fhestate-rs/issues)
 - **Discussions**: [Join community discussions](https://github.com/fhestate/fhestate-rs/discussions)
 - **Twitter**: [@fhe_state](https://twitter.com/fhe_state)
@@ -329,7 +370,5 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ---
 
 <div align="center">
-
 Copyright © 2026 FHESTATE Protocol. All rights reserved.
-
 </div>

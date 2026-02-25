@@ -54,7 +54,7 @@ We are committed to providing a welcoming and inclusive environment for all cont
 
 # Fork the repository on GitHub
 # Then clone your fork
-git clone https://github.com/FHESTATE/fhestate-rs.git
+git clone https://github.com/fhestate/fhestate-rs.git
 cd fhestate-rs
 
 # Add upstream remote
@@ -319,22 +319,26 @@ How was this tested?
 
 ### High Priority
 
-- **Custom Solana Program**: Deploy coordinator program
-- **Active Executor**: Implement `fhe-node` polling
-- **Error Handling**: Improve error messages
-- **Documentation**: More examples and tutorials
+- **GPU Acceleration**: Integrate `tfhe-cuda` feature flag for NVIDIA GPU bootstrapping (`tfhe = { features = ["cuda"] }`). Target: 10x speedup on `MUL` operations.
+- **IPFS Integration**: Replace the simulated `IpfsClient` in `cache.rs` with a real IPFS HTTP client using `reqwest` against a local IPFS node or Pinata API.
+- **ZK Proof of Execution**: Implement a ZK circuit proving that `FheMath::execute_op(op, &a, &b)` was computed correctly, to replace the optimistic challenge model.
+- **Active Executor**: Improve `fhe-node` polling reliability — add exponential backoff on RPC errors, configurable retry limits.
+- **Error Handling**: More descriptive error messages in `FheError` — particularly for `StateHashMismatch` (should include both expected and actual hash).
+- **Documentation**: More examples showing `FheUint64` usage and multi-step computation chains.
 
 ### 1. Project Naming
 For clarity, use the following naming conventions in code and documentation:
-- **fhestate-rs**: The core Rust SDK package.
-- **fhe-node**: The background compute service.
-- **fhe-cli**: The command-line interface for Solana interaction.
+- **fhestate-rs**: The core Rust SDK package (`Cargo.toml` name).
+- **fhe-node**: The background compute service binary.
+- **fhe-cli**: The command-line interface for Solana interaction binary.
+- **coordinator**: The Anchor-based Solana program in `programs/coordinator/`.
 
 ### Low Priority
 
-- **Examples**: More use cases
-- **Benchmarks**: Performance comparisons
-- **Integrations**: Libraries for other languages
+- **`FheUint16` Support**: Add `encrypt_u16` / `decrypt_u16` to `FheMath` and corresponding op wrappers.
+- **Benchmarks**: Add `criterion` benchmarks to `benches/` for `FheMath` ops and `StateTransition::apply()`.
+- **Integrations**: TypeScript/JavaScript SDK wrapping the CLI for web app integration.
+- **Multi-threaded Node**: The current `fhe-node` processes tasks sequentially. A multi-threaded queue with `tokio::spawn` per task would improve throughput.
 
 ---
 

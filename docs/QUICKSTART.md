@@ -97,8 +97,10 @@ cargo run --release --bin fhe_proof -- keygen --out-dir fhe_keys
 ```
 
 > [!NOTE]
-> *   `client_key.bin`: Your private key for encryption/decryption. **Keep this secret!**
-> *   `server_key.bin`: Public key used by the node for math operations.
+> *   `client_key.bin`: Your private key for encryption/decryption. **Keep this secret!** Never share this file — anyone with it can decrypt your data.
+> *   `server_key.bin`: Public key used by the node for homomorphic math operations. This is safe to share — it allows computation on ciphertexts but cannot decrypt them.
+> *   Key generation calls `ConfigBuilder::default().build()` which sets 128-bit TFHE parameters. This involves generating large lattice-based key material — `server_key.bin` will be approximately **100 MB** on disk.
+> *   Keys are serialized with `bincode` and are specific to TFHE-rs v0.7.3. Keys generated with a different version are incompatible.
 
 ---
 
@@ -131,14 +133,26 @@ cargo run --release --bin fhe_proof -- demo
 ### Step 6: Submit to Solana
 Post a cryptographic proof to the blockchain.
 ```bash
-cargo run --release --bin fhe-cli -- submit --op 1
+cargo run --release --bin fhe-cli -- submit --op 0 --value 42
 ```
 
 **Expected Output:**
 ```text
 [INFO] Submitting FHE Task to Solana
+[INFO]    Encrypting value 42...
+[INFO]    Mode: Quick Demo (SPL Memo)
+[INFO]    Sending transaction...
 [INFO]    Success! Transaction Hash: 4w9MES...
 ```
+
+**What happens under the hood:**
+1. `fhe-cli` loads `fhe_keys/client_key.bin` and encrypts `42` as a `FheUint32` ciphertext (~32 KB)
+2. The ciphertext is serialized with `bincode` and stored in `.fhe_cache/<sha256>.bin`
+3. A `local://<sha256>` URI is posted to Solana via the SPL Memo program (demo mode)
+4. In Coordinator mode (`--program <YOUR_ID>`), a full `Task` account is created on-chain with the `input_hash`, `input_uri`, and `operation` fields populated
+
+> [!TIP]
+> Use `--op 0` for ADD, `--op 2` for MUL (slow), `--op 3` for CMP. See the full op code table in [API.md](API.md).
 
 ---
 
@@ -175,7 +189,11 @@ For production or custom cryptographic requirements:
 | :--- | :--- | :--- |
 | **"Keys not found"** | Missing binary files | Run the `keygen` command in Step 4. |
 | **"Insufficient funds"** | No Devnet SOL | Run `solana airdrop 2 -k deploy-wallet.json`. |
-| **"RPC connection failed"** | Network timeout | Check `solana config get`. |
+| **"RPC connection failed"** | Network timeout | Check `solana config get`. Try changing RPC to `https://devnet.helius-rpc.com`. |
+| **"Transaction too large"** | Using `submit-input` with `FheUint32` | Use `submit` instead — inline mode exceeds 1232-byte tx limit for 32KB ciphertexts. |
+| **"StateHashMismatch"** | Stale state hash | Another node updated state between your read and write — retry the operation. |
+| **"Server key not active"** | `set_server_key()` not called | Ensure `keys.activate()` or `activate_server_key(&server_key)` is called before any FHE op. |
+| **Build takes forever** | Debug mode compilation | Always use `--release` flag — debug mode for FHE is 50-100x slower. |
 
 ### Performance Tips
 *   **ALWAYS use `--release`**: Debug mode for FHE is 50x slower.

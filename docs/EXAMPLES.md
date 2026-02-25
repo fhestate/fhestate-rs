@@ -442,3 +442,93 @@ fn encrypted_mean(values: &[FheUint8], client_key: &ClientKey) -> u8 {
 ```
 
 ---
+### Example 11: Using StateTransition (Node-Side)
+**Context**: This is what `fhe-node` does internally for every task. `StateTransition::apply()` is the core of the off-chain computation engine — it loads the old state, runs the FHE op, stores the new state, and returns the SHA256 proof hash to post on-chain.
+
+```rust
+use fhestate_rs::{KeyManager, FheMath, LocalCache, StateTransition};
+use fhestate_rs::constants::ops;
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Load keys and activate server key (required before any FHE op)
+    let keys = KeyManager::load("./fhe_keys")?;
+    keys.activate(); // sets ServerKey in thread-local storage
+
+    let cache = LocalCache::new(".fhe_cache");
+
+    // --- CLIENT SIDE: Encrypt input ---
+    let ct_input = FheMath::encrypt_u32(100, &keys.client_key);
+    let input_bytes = FheMath::serialize_u32(&ct_input)?;
+
+    // --- NODE SIDE: Apply FHE operation ---
+    // First call: no existing state — input becomes initial state
+    let (uri_v1, hash_v1) = StateTransition::apply(
+        &cache,
+        None,         // No prior state (fresh account)
+        &input_bytes,
+        ops::ADD,
+    )?;
+    println!("Initial state URI: {}", uri_v1);
+    println!("Post to chain → state_hash: {}", hex::encode(hash_v1));
+
+    // Second call: add 200 to existing state
+    let ct_second = FheMath::encrypt_u32(200, &keys.client_key);
+    let second_bytes = FheMath::serialize_u32(&ct_second)?;
+
+    let (uri_v2, hash_v2) = StateTransition::apply(
+        &cache,
+        Some(&uri_v1), // Current state_uri from StateContainer PDA
+        &second_bytes,
+        ops::ADD,
+    )?;
+    println!("New state URI: {}", uri_v2);
+
+    // --- CLIENT SIDE: Verify hash and decrypt ---
+    let result_bytes = cache.load(&uri_v2)?;
+    assert_eq!(FheMath::hash(&result_bytes), hash_v2, "Hash mismatch!");
+
+    let result = FheMath::decrypt_u32(
+        &FheMath::deserialize_u32(&result_bytes)?,
+        &keys.client_key
+    );
+    println!("✅ Result: {} (expected 300)", result);
+    assert_eq!(result, 300);
+    Ok(())
+}
+```
+
+---
+
+### Example 12: Content-Addressed Cache Operations
+**Context**: `LocalCache` stores ciphertexts by SHA256 hash of their content. Same bytes → same URI, always. Useful for deduplication and integrity checking.
+
+```rust
+use fhestate_rs::LocalCache;
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let cache = LocalCache::new(".fhe_cache");
+    let data = b"example ciphertext bytes";
+
+    // Store returns content-addressed URI (local://<64-char-sha256>)
+    let uri = cache.store(data)?;
+    println!("Stored at: {}", uri);
+
+    // Deterministic — same data always yields same URI
+    assert_eq!(cache.store(data)?, uri);
+
+    // Load by URI
+    assert_eq!(cache.load(&uri)?, data);
+
+    // Resolve handles both local:// and ipfs:// schemes
+    let _ = cache.resolve(&uri)?;
+
+    // Introspection
+    println!("Cache entries: {}", cache.list()?.len());
+    println!("Cache size: {} KB", cache.size()? / 1024);
+
+    // Cleanup
+    cache.delete(&uri)?;
+    println!("✅ Done");
+    Ok(())
+}
+```

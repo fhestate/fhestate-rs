@@ -26,6 +26,7 @@
     *   [Q13. FHE vs. SGX Enclaves](#q13-fhestate-vs-secure-enclaves-sgx)
     *   [Q14. Error Troubleshooting](#q14-error-code-quick-fix)
     *   [Q15. The Roadmap](#q15-whats-next-for-fhestate)
+    *   [Q16. How does state chaining work?](#q16-how-does-the-state-hash-chain-work)
 
 ---
 
@@ -37,9 +38,11 @@
 *   **FHESTATE**: Data stays encrypted even during the math. The server (Node) calculates results blindfolded, and only you (the key owner) can lift the blindfold.
 
 ### Q2. Why FHE on Solana?
-Solana is the only high-throughput chain that can handle the massive "Proof Streams" required for FHE.
-- **Latency**: FHE calculations take time; we need a chain with sub-second finality to avoid bottlenecks.
-- **Cost**: FHE metadata is large. Solana's rent-based storage and low fees make it 10,000x more viable than Ethereum for this use case.
+Solana is uniquely suited to anchor FHE computation due to several properties:
+- **Throughput**: 65,000+ TPS means the chain can handle high-frequency state update proofs without becoming a bottleneck.
+- **Latency**: ~400ms block time and 1-2s finality means the node gets confirmation quickly after posting a result hash.
+- **Cost**: FHE metadata (hashes, URIs, state containers) needs persistent on-chain storage. Solana's rent-based storage model makes storing small `StateContainer` PDAs (~200 bytes) economically viable — orders of magnitude cheaper than Ethereum.
+- **PDAs**: Program Derived Addresses give every user a deterministic, permissionless storage slot for their encrypted state — no centralized registry needed.
 
 ### Q3. Is this production-ready?
 **No.** We are in **Public Alpha**. 
@@ -63,7 +66,11 @@ FHE math is significantly heavier than plaintext math.
 | **Multiply** | `800ms+` | Requires "Relinearization" and "Bootstrapping" |
 
 ### Q6. What is "Bootstrapping" and why is it slow?
-Every FHE operation increases the mathematical "noise" in a ciphertext. If noise gets too high, the data is lost. **Bootstrapping** is a procedure that clears the noise without decrypting. It is essentially "running a decryption circuit inside a ciphertext." It is the most computationally expensive part of FHE.
+Every FHE operation injects a small amount of cryptographic noise into the ciphertext. Think of it like a signal-to-noise ratio that degrades with each computation. If noise accumulates past a threshold, decryption produces garbage.
+
+**Bootstrapping** is the procedure that refreshes this noise budget — essentially running a homomorphic decryption circuit *inside* another ciphertext, without ever decrypting the data. It resets the noise level so further computation remains correct.
+
+In TFHE-rs, bootstrapping happens automatically as part of every gate (the "PBS" — Programmable Bootstrap). This is why even a single `+` operation on `FheUint8` takes ~100ms — it includes multiple bootstrapping rounds under the hood. Multiplication is especially expensive (~800ms) because it requires an additional "relinearization" step to bring the resulting ciphertext back to the correct structure.
 
 ### Q7. Is encryption deterministic?
 **Absolutely not.** FHESTATE uses **Probabilistic Encryption**. 
@@ -116,3 +123,28 @@ Solana is a public ledger—everyone knows *which wallet* requested a computatio
 | **500** | `NoiseOverflow` | Reset your ciphertext or perform bootstrapping. |
 
 ---
+
+### Q15. What's next for FHESTATE?
+
+The v0.1.0 release establishes the core protocol. Next phases focus on:
+
+- **GPU Acceleration**: Migrating to `tfhe-cuda` for GPU-accelerated bootstrapping — targeting 10-100x speedup on NVIDIA hardware for multiplication specifically.
+- **ZK Proof of Correct Execution**: Using a ZK proof to prove the node ran the correct FHE operation, replacing the current optimistic challenge model with cryptographic guarantees.
+- **Threshold Decryption**: Splitting `client_key` into shares held by multiple parties — enabling multi-party computation without a single point of trust.
+- **IPFS Integration**: Production IPFS/Arweave node integration to replace the current simulated gateway, enabling truly decentralized ciphertext storage.
+- **Mainnet Deployment**: Security audit + HSM key management integration before any Mainnet deployment.
+
+---
+
+### Q16. How does the state hash chain work?
+
+Every `StateContainer` PDA maintains a `state_hash` field (SHA256 of the current ciphertext bytes) and a monotonically increasing `version` counter. When the node posts a result:
+
+1. Reads `state_container.state_hash` (the current on-chain hash) → this becomes `previous_state_hash`
+2. Computes `SHA256(new_state_ciphertext_bytes)` → this becomes `result_hash`
+3. Calls `update_state(previous_state_hash, result_hash, result_uri)`
+4. The Coordinator enforces `require!(state_container.state_hash == previous_state_hash)` — stale reads, replays, or tampered state are all rejected with `StateHashMismatch`
+5. On success: `state_hash = result_hash`, `version += 1`
+
+This creates a tamper-evident, ordered sequence of state transitions. You can reconstruct the entire computation history by following the chain of hashes backward.
+
