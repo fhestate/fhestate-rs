@@ -13,7 +13,6 @@ struct Cli {
 
 #[derive(Subcommand, Debug)]
 enum Commands {
-
     /// One-time setup: Initialize Registry and User State
     Setup {
         #[arg(long, default_value = "https://api.devnet.solana.com")]
@@ -32,6 +31,8 @@ enum Commands {
         program: String,
         #[arg(long, default_value = "deploy-wallet.json")]
         wallet: String,
+        #[arg(short, long, default_value_t = 0)]
+        op: u8,
         #[arg(short, long)]
         value: u32,
         #[arg(long)]
@@ -46,6 +47,8 @@ enum Commands {
         program: String,
         #[arg(long, default_value = "deploy-wallet.json")]
         wallet: String,
+        #[arg(short, long, default_value_t = 0)]
+        op: u8,
         #[arg(short, long)]
         value: u32,
         #[arg(long)]
@@ -85,10 +88,18 @@ fn main() {
             program,
             wallet,
         } => commands::setup(&rpc_url, &program, &wallet),
+        Commands::Submit {
+            rpc_url,
+            program,
+            wallet,
             op,
             value,
             target,
-        } => commands::submit_task(&rpc_url, &program, &wallet, op, value, None, target.as_deref()),
+        } => commands::submit_task(&rpc_url, &program, &wallet, op, value, target.as_deref()),
+        Commands::SubmitInput {
+            rpc_url,
+            program,
+            wallet,
             op,
             value,
             target,

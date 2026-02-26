@@ -240,22 +240,34 @@ impl ExecutorService {
             info!("Processing Task #{} (Op: {})", task.id, task.operation);
 
             // 1. Fetch input ciphertext from cache (Local, IPFS, or INLINE)
-            let input_bytes = if task.input_uri.starts_with("inline://") {
+            let input_bytes: Vec<u8> = if task.input_uri.starts_with("inline://") {
                 info!("   Task #{} resolving inline ciphertext from local cache...", task.id);
                 let local_uri = task.input_uri.replace("inline://", "local://");
-                match self.cache.resolve(&local_uri) {
+                match self.cache.load(&local_uri) {
                     Ok(bytes) => bytes,
                     Err(e) => {
-                        error!("   Task #{} error: failed to resolve inline ciphertext: {}", task.id, e);
+                        error!("   Task #{} error: failed to load inline ciphertext: {}", task.id, e);
                         return Ok(());
                     }
                 }
             } else {
-                match self.cache.resolve(&task.input_uri) {
-                    Ok(bytes) => bytes,
-                    Err(e) => {
-                        error!("   Task #{} error: failed to resolve input ciphertext: {}", task.id, e);
-                        return Ok(());
+                // Fallback to direct load or fetch if resolve is having visibility issues
+                if task.input_uri.starts_with("local://") {
+                    match self.cache.load(&task.input_uri) {
+                        Ok(bytes) => bytes,
+                        Err(e) => {
+                            error!("   Task #{} error: failed to load input ciphertext: {}", task.id, e);
+                            return Ok(());
+                        }
+                    }
+                } else {
+                    // Simulating ipfs fetch for proof-of-concept
+                    match self.cache.load(&task.input_uri.replace("ipfs://", "local://")) {
+                        Ok(bytes) => bytes,
+                        Err(_) => {
+                            error!("   Task #{} error: IPFS simulation failed for {}", task.id, task.input_uri);
+                            return Ok(());
+                        }
                     }
                 }
             };
@@ -263,7 +275,7 @@ impl ExecutorService {
             // Handle Reveal Logic
             if task.status == TaskStatus::RevealRequested {
                 info!("   Task #{} is a Reveal Request. Generating decryption share...", task.id);
-                let reveal_data = format!("REVEALED:StateHash:{}", hex::encode(input_bytes));
+                let reveal_data = format!("REVEALED:StateHash:{}", hex::encode(&input_bytes));
                 
                 let mut disc_hasher = sha2::Sha256::new();
                 disc_hasher.update(b"global:provide_reveal");

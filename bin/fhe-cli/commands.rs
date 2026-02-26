@@ -107,6 +107,7 @@ pub fn submit_task(
     wallet_path: &str,
     op: u8,
     value: u32,
+    target_owner: Option<&str>,
 ) -> Result<(), Box<dyn Error>> {
     info!("Submitting FHE Task...");
 
