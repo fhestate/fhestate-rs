@@ -9,7 +9,7 @@
 [![TFHE-rs](https://img.shields.io/badge/TFHE--rs-v0.7.3-orange?style=for-the-badge&logo=rust&logoColor=white)](https://github.com/zama-ai/tfhe-rs)
 [![License](https://img.shields.io/badge/License-MIT-blue?style=for-the-badge)](LICENSE)
 
-[**Quick Start**](docs/QUICKSTART.md) • [**Documentation**](https://docs.fhestate.org) • [**API Reference**](docs/API.md) • [**Examples**](docs/EXAMPLES.md)
+[**Quick Start**](docs/QUICKSTART.md) • [**Documentation**](https://docs.fhestate.org) • [**API Reference**](docs/API.md) • [**Examples**](docs/EXAMPLES.md) • [**Buy FHESTATE**](https://pump.fun/coin/4cfEdG5Z814n3SvJYBDvvHg3VVFmRDgVqKUdaganpump)
 
 ---
 
