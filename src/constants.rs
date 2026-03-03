@@ -27,8 +27,18 @@ pub mod ops {
     pub const ADD: u8 = 0;
     pub const SUB: u8 = 1;
     pub const MUL: u8 = 2;
-    pub const CMP: u8 = 3;
+    pub const CMP: u8 = 3; // Legacy/Reserved
     pub const AND: u8 = 4;
     pub const OR: u8 = 5;
     pub const XOR: u8 = 6;
+
+    // Encrypted Logic (Comparisons)
+    pub const EQ: u8 = 10;
+    pub const NE: u8 = 11;
+    pub const GT: u8 = 12;
+    pub const LT: u8 = 13;
+    pub const GE: u8 = 14;
+    pub const LE: u8 = 15;
+    pub const MAX: u8 = 16;
+    pub const MIN: u8 = 17;
 }
