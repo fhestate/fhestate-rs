@@ -128,6 +128,7 @@ impl FheMath {
 
     /// Execute operation by code.
     pub fn execute_op(op: u8, a: &FheUint32, b: &FheUint32) -> Option<FheUint32> {
+        use crate::logic::FheLogic;
         match op {
             ops::ADD => Some(Self::add(a, b)),
             ops::SUB => Some(Self::sub(a, b)),
@@ -136,6 +137,16 @@ impl FheMath {
             ops::AND => Some(Self::bitand(a, b)),
             ops::OR => Some(Self::bitor(a, b)),
             ops::XOR => Some(Self::bitxor(a, b)),
+
+            // FHE Logic Comparisons
+            ops::EQ => FheLogic::eq(a, b).ok(),
+            ops::NE => FheLogic::ne(a, b).ok(),
+            ops::GT => FheLogic::gt(a, b).ok(),
+            ops::LT => FheLogic::lt(a, b).ok(),
+            ops::GE => FheLogic::ge(a, b).ok(),
+            ops::LE => FheLogic::le(a, b).ok(),
+            ops::MAX => FheLogic::max(a, b).ok(),
+            ops::MIN => FheLogic::min(a, b).ok(),
             _ => None,
         }
     }
