@@ -41,4 +41,7 @@ pub mod ops {
     pub const LE: u8 = 15;
     pub const MAX: u8 = 16;
     pub const MIN: u8 = 17;
+
+    // Logical Primitives (FHE Ops)
+    pub const NOT: u8 = 20;
 }
