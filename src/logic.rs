@@ -99,6 +99,40 @@ impl FheLogic {
         let result: FheUint32 = a.lt(scalar).cast_into();
         Ok(result)
     }
+
+    /// Performs logical AND on two encrypted boolean values (0 or 1).
+    #[inline]
+    pub fn and(a: &FheUint32, b: &FheUint32) -> FheResult<FheUint32> {
+        let result = a & b;
+        Ok(result)
+    }
+
+    /// Performs logical OR on two encrypted boolean values (0 or 1).
+    #[inline]
+    pub fn or(a: &FheUint32, b: &FheUint32) -> FheResult<FheUint32> {
+        let result = a | b;
+        Ok(result)
+    }
+
+    /// Performs logical negation on an encrypted boolean value (0 or 1).
+    /// Returns 1 if input is 0, and 0 if input is 1.
+    /// This is a real FHE operation using tfhe-rs primitives.
+    #[inline]
+    pub fn not(a: &FheUint32) -> FheResult<FheUint32> {
+        // More efficient FHE implementation for NOT (x == 0)
+        let result: FheUint32 = a.eq(0u32).cast_into();
+        Ok(result)
+    }
+
+    /// Production-grade homomorphic multiplexer.
+    /// Selects between then_val and else_val based on an encrypted condition cond (0 or 1).
+    #[inline]
+    pub fn if_then_else(cond: &FheUint32, then_val: &FheUint32, else_val: &FheUint32) -> FheResult<FheUint32> {
+        // Convert the condition FheUint32 (0/1) to a Boolean ciphertext for selection
+        let bool_cond = cond.ne(0u32);
+        let result = bool_cond.if_then_else(then_val, else_val);
+        Ok(result)
+    }
 }
 
 #[cfg(test)]
@@ -212,6 +246,66 @@ mod tests {
 
     #[test]
     #[ignore = "requires full FHE keygen — run with: cargo test -- --ignored"]
+    fn test_logical_and() {
+        let ck = setup();
+        let a = enc(1, &ck);
+        let b = enc(0, &ck);
+        assert_eq!(dec(&FheLogic::and(&a, &a).unwrap(), &ck), 1);
+        assert_eq!(dec(&FheLogic::and(&a, &b).unwrap(), &ck), 0);
+    }
+
+    #[test]
+    #[ignore = "requires full FHE keygen — run with: cargo test -- --ignored"]
+    fn test_logical_or() {
+        let ck = setup();
+        let a = enc(1, &ck);
+        let b = enc(0, &ck);
+        assert_eq!(dec(&FheLogic::or(&a, &b).unwrap(), &ck), 1);
+        assert_eq!(dec(&FheLogic::or(&b, &b).unwrap(), &ck), 0);
+    }
+
+    #[test]
+    #[ignore = "requires full FHE keygen — run with: cargo test -- --ignored"]
+    fn test_logical_not_real() {
+        let ck = setup();
+        let zero = enc(0, &ck);
+        let one = enc(1, &ck);
+        assert_eq!(dec(&FheLogic::not(&zero).unwrap(), &ck), 1);
+        assert_eq!(dec(&FheLogic::not(&one).unwrap(), &ck), 0);
+    }
+
+    #[test]
+    #[ignore = "requires full FHE keygen — run with: cargo test -- --ignored"]
+    fn test_if_then_else_real() {
+        let ck = setup();
+        let cond_true = enc(1, &ck);
+        let cond_false = enc(0, &ck);
+        let a = enc(12345, &ck);
+        let b = enc(67890, &ck);
+        
+        assert_eq!(dec(&FheLogic::if_then_else(&cond_true, &a, &b).unwrap(), &ck), 12345);
+        assert_eq!(dec(&FheLogic::if_then_else(&cond_false, &a, &b).unwrap(), &ck), 67890);
+    }
+
+    #[test]
+    #[ignore = "requires full FHE keygen — run with: cargo test -- --ignored"]
+    fn test_production_nested_branching() {
+        let ck = setup();
+        let c1 = enc(0, &ck); // false
+        let c2 = enc(1, &ck); // true
+        let a = enc(100, &ck);
+        let b = enc(200, &ck);
+        let c = enc(300, &ck);
+
+        // Logic: if c1 { a } else if c2 { b } else { c }
+        let inner = FheLogic::if_then_else(&c2, &b, &c).unwrap();
+        let outer = FheLogic::if_then_else(&c1, &a, &inner).unwrap();
+        
+        assert_eq!(dec(&outer, &ck), 200);
+    }
+
+    #[test]
+    #[ignore = "requires full FHE keygen — run with: cargo test -- --ignored"]
     fn test_min_lte_max_consistency() {
         let ck = setup();
         let a = enc(10, &ck);
@@ -238,8 +332,16 @@ mod tests {
             ("le",  FheLogic::le),
             ("max", FheLogic::max),
             ("min", FheLogic::min),
+            ("and", FheLogic::and),
+            ("or",  FheLogic::or),
         ];
-        assert_eq!(binary_ops.len(), 8);
+        assert_eq!(binary_ops.len(), 10);
+
+        type UnaryFn = fn(&FheUint32) -> FheResult<FheUint32>;
+        let unary_ops: &[(&str, UnaryFn)] = &[
+            ("not", FheLogic::not),
+        ];
+        assert_eq!(unary_ops.len(), 1);
 
         let scalar_ops: &[(&str, ScalarFn)] = &[
             ("eq_scalar", FheLogic::eq_scalar),
