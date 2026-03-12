@@ -147,6 +147,9 @@ impl FheMath {
             ops::LE => FheLogic::le(a, b).ok(),
             ops::MAX => FheLogic::max(a, b).ok(),
             ops::MIN => FheLogic::min(a, b).ok(),
+
+            // Logical Primitives
+            ops::NOT => FheLogic::not(a).ok(),
             _ => None,
         }
     }
