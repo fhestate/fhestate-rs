@@ -44,4 +44,8 @@ pub mod ops {
 
     // Logical Primitives (FHE Ops)
     pub const NOT: u8 = 20;
+
+    // Voting Ops
+    pub const VOTE_TALLY: u8 = 30;
+    pub const CHECK_WINNER: u8 = 31;
 }
