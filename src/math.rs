@@ -150,6 +150,11 @@ impl FheMath {
 
             // Logical Primitives
             ops::NOT => FheLogic::not(a).ok(),
+
+            // Voting Operations
+            ops::VOTE_TALLY => Some(a + b),
+            ops::CHECK_WINNER => FheLogic::gt(a, b).ok(),
+
             _ => None,
         }
     }
