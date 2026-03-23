@@ -343,6 +343,7 @@ Real FHE transactions on Solana Devnet:
 | [API Reference](docs/API.md) | Complete SDK and CLI reference |
 | [Examples](docs/EXAMPLES.md) | Code examples for common use cases |
 | [FAQ](docs/FAQ.md) | Technical questions answered |
+| [FHE Logic](docs/FHE_LOGIC.md) | **DETAILED:** Logical Primitives & State Transitions |
 | [Contributing](docs/CONTRIBUTING.md) | How to contribute |
 
 ---
