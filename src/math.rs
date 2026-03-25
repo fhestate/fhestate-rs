@@ -158,6 +158,33 @@ impl FheMath {
             _ => None,
         }
     }
+
+    /// Optimized binary tree aggregation for FHE ciphertexts.
+    /// 
+    /// In FHE, sequential additions (a+b+c+d...) cause noise to grow linearly O(n).
+    /// This binary tree approach ( (a+b) + (c+d) ) grows noise logarithmically O(log n), 
+    /// reducing the number of costly bootstrapping operations in the critical path.
+    pub fn tree_sum(ciphertexts: Vec<FheUint32>) -> Option<FheUint32> {
+        if ciphertexts.is_empty() { return None; }
+
+        let mut current_level = ciphertexts;
+
+        while current_level.len() > 1 {
+            let mut next_level = Vec::with_capacity((current_level.len() + 1) / 2);
+            let mut it = current_level.into_iter();
+
+            while let Some(first) = it.next() {
+                if let Some(second) = it.next() {
+                    next_level.push(first + second);
+                } else {
+                    next_level.push(first);
+                }
+            }
+            current_level = next_level;
+        }
+
+        Some(current_level.pop().unwrap())
+    }
 }
 
 #[cfg(test)]
