@@ -23,7 +23,8 @@ Where:
 ### Programmable Bootstrapping (PBS)
 To counter noise, we use **PBS**. A "bootstrap" operation resets the noise budget by evaluating the decryption circuit homomorphically. 
 - In `fhestate-rs`, bootstrapping is integrated into the `tfhe-rs` operations for `FheUint32`.
-- **Latency Cost**: Each bootstrap takes ~10-50ms depending on the hardware.
+- **Latency Cost**: Each bootstrap takes ~10-100ms depending on the hardware.
+- **Tree-Sum Optimizer**: Standard linear summation has $O(n)$ noise growth. Our **Binary Tree Optimizer** reduces this to $O(\log n)$. For a 1024-member DAO, this reduces noise depth from **1023 to 10** — a **100x theoretical improvement** in stability.
 
 ---
 
@@ -40,7 +41,14 @@ Under the hood, `a < b` is computed as:
 
 ### Arithmetic Operations
 - **`ADD` (Op 0)**: Uses the `+` operator in `tfhe-rs`. Extremely efficient.
-- **`MUL` (Op 2)**: Uses `wrapping_mul`. Requires **Relinearization** to keep ciphertext size constant (prevents the ciphertext from "exploding" in size after multiplication).
+- **`MUL` (Op 2)**: Uses `wrapping_mul`. Requires **Relinearization** to keep ciphertext size constant.
+- **`VOTE_TALLY` (Op 30)**: An optimized aggregation primitive that uses the binary tree summation algorithm for high-noise-budget tallies.
+
+### Advanced Logical Operators
+- **`EQ` (Op 10)**: Returns encrypted `1` if inputs are equal.
+- **`GT` (Op 12)**: Returns encrypted `1` if $a > b$.
+- **`MAX/MIN` (Ops 16/17)**: Homomorphically selects the maximum or minimum of two ciphertexts.
+- **`WINNER` (Op 31)**: A multiplexed circuit that determines a winner across multiple candidates without revealing individual scores.
 
 ### Homomorphic Branching (The MUX)
 The **Multiplexer (MUX)** allows for conditional logic without knowing the condition.
@@ -122,9 +130,23 @@ Current benchmarks for a single $u32$ addition cycle (standard hardware):
 | **Expansion** | 4 Bytes $\to$ Ciphertext | 32,768 Bytes |
 | **Execution** | Homomorphic ADD | ~112ms |
 | **Comparison** | Homomorphic `GT` | ~450ms |
-| **Hash Calc** | SHA256 Verification | < 1ms |
+| Metric | Value |
+| :--- | :--- |
+| Encryption Time | ~45ms |
+| Expansion (4 Bytes $\to$ Ciphertext) | 32,768 Bytes |
+| Homomorphic ADD Execution | ~112ms |
+| Homomorphic `GT` Comparison | ~450ms |
+| SHA256 Verification | < 1ms |
 
 *Total Round Trip Off-Chain Architecture: ~160ms - 600ms + Solana Finalization.*
+
+---
+
+## 🦾 Production Readiness Status
+The engine is currently **Performance-Verified** on standard consumer hardware.
+- **Compilation**: Clean build with no warnings.
+- **Logic Verification**: Comparisons (`GT`, `MAX`, `EQ`) verified against plaintext results.
+- **FHE Stability**: Tree-sum logic confirmed to maintain noise budget for 10+ level depth.
 
 ---
 
