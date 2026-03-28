@@ -24,6 +24,8 @@
 - 🚀 **Dual Ingestion Paths**: Submit tasks via off-chain cache URI (standard) or embed small ciphertexts directly in the transaction (inline fast-path).
 - ⛓️ **Deterministic Transition Engine**: Every state update is SHA256 hash-chained — rollbacks and unauthorized transitions are rejected on-chain.
 - 📊 **Verifiable Commitments**: Every computation produces a SHA256 proof hash posted back to the blockchain.
+- 🌳 **Optimized Aggregation**: Implements $O(\log n)$ Tree-Sum logic for large-scale confidential voting tallies.
+- 📈 **Integrated Profiling**: High-precision performance metrics for real-time benchmark reports.
 
 ---
 
@@ -41,7 +43,7 @@ Unlike Zero-Knowledge Proofs (which prove a statement *about* data without revea
 
 ## 🎯 Use Cases
 
-- **Private Voting**: Tally encrypted ballots homomorphically without revealing individual votes
+- **Confidential Voting (Dark DAO)**: Tally encrypted ballots homomorphically using $O(\log n)$ tree-sum optimization, hiding individual votes and margins.
 - **Sealed-Bid Auctions**: Determine the winner without exposing any bid amounts
 - **Confidential Trading**: Execute operations on encrypted order books
 - **Privacy-Preserving Analytics**: Compute statistics on encrypted datasets
@@ -239,10 +241,13 @@ cargo run --bin fhe-cli -- reveal --task <TASK_PUBKEY>    # Request result revea
 | `0` | ADD | Homomorphic addition — fast (~100ms) |
 | `1` | SUB | Homomorphic subtraction |
 | `2` | MUL | Homomorphic multiplication — expensive (~800ms+, requires relinearization) |
-| `3` | CMP | Returns encrypted `1` if `a < b`, else encrypted `0` |
-| `4` | AND | Bitwise AND |
-| `5` | OR  | Bitwise OR |
-| `6` | XOR | Bitwise XOR |
+| `10` | EQ | Returns encrypted `1` if `a == b`, else `0` |
+| `12` | GT | Returns encrypted `1` if `a > b`, else `0` |
+| `16` | MAX | Homomorphic maximum of two ciphertexts |
+| `17` | MIN | Homomorphic minimum of two ciphertexts |
+| `20` | NOT | Homomorphic bitwise NOT |
+| `30` | VOTE_TALLY | Optimized Tree-Sum for DAO aggregations |
+| `31` | WINNER | Constant-time winner detection (multiplexed) |
 
 ### `fhe-node` — Background Executor
 
@@ -339,11 +344,10 @@ Real FHE transactions on Solana Devnet:
 | Document | Description |
 |----------|-------------|
 | [Quick Start Guide](docs/QUICKSTART.md) | Get running in 5 minutes |
-| [Architecture Overview](docs/ARCHITECTURE.md) | Deep dive into system design |
+| [Architecture Overview](docs/ARCHITECTURE.md) | Deep dive into system design and Dark DAO |
+| [FHE Logic](docs/FHE_LOGIC.md) | **DETAILED:** Verification & Performance audit |
 | [API Reference](docs/API.md) | Complete SDK and CLI reference |
 | [Examples](docs/EXAMPLES.md) | Code examples for common use cases |
-| [FAQ](docs/FAQ.md) | Technical questions answered |
-| [FHE Logic](docs/FHE_LOGIC.md) | **DETAILED:** Logical Primitives & State Transitions |
 | [Contributing](docs/CONTRIBUTING.md) | How to contribute |
 
 ---
