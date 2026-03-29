@@ -18,6 +18,8 @@
 *   **2. Rust SDK**
     *   [`KeyManager`](#keymanager) - Lifecycle management
     *   [`FheMath`](#fhemath) - Crypto-math engine
+    *   [`FheProfiler`](#fheprofiler) - Performance benchmarking
+    *   [`VotingTally`](#votingtally) - Confidential DAO logic
     *   [`Core Types`](#core-types) - `FheUint8` and more
 
 *   **3. System Integrations**
@@ -116,12 +118,14 @@ cargo run --bin fhe-cli -- submit [OPTIONS]
 | Code | Name | Description |
 |------|------|-------------|
 | `0` | `ADD` | Homomorphic addition |
-| `1` | `SUB` | Homomorphic subtraction (default) |
+| `1` | `SUB` | Homomorphic subtraction |
 | `2` | `MUL` | Homomorphic multiplication (~800ms) |
-| `3` | `CMP` | Returns encrypted `1` if `a < b`, else `0` |
-| `4` | `AND` | Bitwise AND |
-| `5` | `OR`  | Bitwise OR |
-| `6` | `XOR` | Bitwise XOR |
+| `10` | `EQ` | Returns encrypted `1` if `a == b`, else `0` |
+| `12` | `GT` | Returns encrypted `1` if `a > b`, else `0` |
+| `16` | `MAX` | Homomorphic maximum of two ciphertexts |
+| `17` | `MIN` | Homomorphic minimum of two ciphertexts |
+| `30` | `VOTE_TALLY` | Optimized Tree-Sum for DAO aggregations |
+| `31` | `WINNER` | Constant-time winner detection (multiplexed) |
 
 **Real Output:**
 ```text
@@ -210,6 +214,7 @@ The crypto-math engine. Supports operations on `FheUint8`, `FheUint32`, and `Fhe
 | `add_scalar` | Add plaintext `u32` to ciphertext | `FheMath::add_scalar(&a, 10)` |
 | `sub_scalar` | Subtract plaintext `u32` | `FheMath::sub_scalar(&a, 5)` |
 | `mul_scalar` | Multiply by plaintext `u32` | `FheMath::mul_scalar(&a, 3)` |
+| `tree_sum` | **Optimized $O(\log n)$ aggregation** | `FheMath::tree_sum(vec![a, b, c])` |
 | `execute_op` | Dispatch by op code (used by node internally) | `FheMath::execute_op(0, &a, &b)` |
 
 **Encryption & Decryption Helpers:**
@@ -262,6 +267,38 @@ let exists = cache.exists(&uri);
 
 // Resolve any URI scheme (local:// or ipfs://)
 let bytes = cache.resolve(&uri)?;
+```
+
+#### `FheProfiler`
+*(Location: `src/profiler.rs`)*
+
+Production-grade benchmarking suite for FHE circuits.
+
+```rust
+use fhestate_rs::FheProfiler;
+
+// Benchmark any FHE operation
+let result = FheProfiler::benchmark("My Circuit", 10, || {
+    FheMath::add(&a, &b)
+});
+
+// Print a formatted report
+FheProfiler::print_report(&[result]);
+```
+
+#### `VotingTally`
+*(Location: `src/voting.rs`)*
+
+Confidential voting and winner detection logic for the Dark DAO.
+
+```rust
+use fhestate_rs::VotingTally;
+
+// 1. Tally ballots using Tree-Sum
+let total = VotingTally::tally_binary_votes(encrypted_votes)?;
+
+// 2. Find encrypted winner from multiple candidate totals
+let winner_score = VotingTally::find_winner(&[total_a, total_b])?;
 ```
 
 ---
