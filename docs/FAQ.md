@@ -7,26 +7,11 @@
 
 ## 🗺️ Expert Navigator
 
-*   **1. Protocol Fundamentals**
-    *   [Q1. What is FHE?](#q1-what-is-fhe)
-    *   [Q2. Why FHE on Solana?](#q2-why-fhe-on-solana)
-    *   [Q3. Is this production-ready?](#q3-is-this-production-ready)
-*   **2. Technical Deep-Dive**
-    *   [Q4. Ciphertext Spatial Overhead](#q4-how-large-are-fhe-ciphertexts)
-    *   [Q5. Performance Benchmarks](#q5-how-fast-are-fhe-operations)
-    *   [Q6. Understanding Bootstrapping](#q6-what-is-bootstrapping-and-why-is-it-slow)
-    *   [Q7. Probabilistic Encryption](#q7-is-encryption-deterministic)
-*   **3. Security & Trust Model**
-    *   [Q8. Patterns vs. Privacy](#q8-why-do-i-see-a-pattern-in-demoregistered-output)
-    *   [Q9. Validator Privacy](#q9-can-blockchain-validators-see-my-data)
-    *   [Q10. Finality of Key Loss](#q10-can-i-recover-my-clientkeybin)
-    *   [Q11. Identity vs. Data Privacy](#q11-does-fhestate-hide-my-wallet-address)
-*   **4. Comparisons & Architecture**
-    *   [Q12. FHE vs. ZK Proofs](#q12-fhestate-vs-zk-proofs)
-    *   [Q13. FHE vs. SGX Enclaves](#q13-fhestate-vs-secure-enclaves-sgx)
-    *   [Q14. Error Troubleshooting](#q14-error-code-quick-fix)
-    *   [Q15. The Roadmap](#q15-whats-next-for-fhestate)
-    *   [Q16. How does state chaining work?](#q16-how-does-the-state-hash-chain-work)
+*   **4. Privacy Operations (Dark DAO)**
+    *   [Q15. What is a Dark DAO?](#q15-what-is-a-dark-dao)
+    *   [Q16. How does Tree-Sum optimize voting?](#q16-how-does-tree-sum-optimize-voting)
+    *   [Q17. The Roadmap](#q17-whats-next-for-fhestate)
+    *   [Q18. How does state chaining work?](#q18-how-does-the-state-hash-chain-work)
 
 ---
 
@@ -124,19 +109,31 @@ Solana is a public ledger—everyone knows *which wallet* requested a computatio
 
 ---
 
-### Q15. What's next for FHESTATE?
+## 🏛️ 4. Privacy Operations (Dark DAO)
 
-The v0.1.0 release establishes the core protocol. Next phases focus on:
+### Q15. What is a Dark DAO?
+A **Dark DAO** is a decentralized autonomous organization where governance is completely confidential. 
+- **Encrypted Ballots**: No one can see your individual vote.
+- **Blind Tallying**: The result is calculated without the node ever knowing the partial scores.
+- **Private Winners**: Only the winning outcome is revealed; the margin of victory remains hidden.
 
-- **GPU Acceleration**: Migrating to `tfhe-cuda` for GPU-accelerated bootstrapping — targeting 10-100x speedup on NVIDIA hardware for multiplication specifically.
-- **ZK Proof of Correct Execution**: Using a ZK proof to prove the node ran the correct FHE operation, replacing the current optimistic challenge model with cryptographic guarantees.
-- **Threshold Decryption**: Splitting `client_key` into shares held by multiple parties — enabling multi-party computation without a single point of trust.
-- **IPFS Integration**: Production IPFS/Arweave node integration to replace the current simulated gateway, enabling truly decentralized ciphertext storage.
-- **Mainnet Deployment**: Security audit + HSM key management integration before any Mainnet deployment.
+### Q16. How does Tree-Sum optimize voting?
+Normally, adding 100 votes in FHE would create a "chain" of 99 additions, causing cryptographic noise to explode. **Tree-Sum** organizes these additions into a binary tree structure.
+- **Benefit**: Instead of 99 noise-levels deep, the result is only **7 levels deep** ($\log_2 100$). This ensures accurate decryptions for large-scale governance.
 
 ---
 
-### Q16. How does the state hash chain work?
+### Q17. What's next for FHESTATE?
+
+We are currently focused on productionizing the core infrastructure:
+
+- **GPU Acceleration**: Migrating to `tfhe-cuda` for GPU-accelerated bootstrapping.
+- **ZK Proof of Correct Execution**: Proving the FHE node worked correctly without requiring trust.
+- **Threshold Decryption**: Splitting keys across multiple nodes for decentralized security.
+
+---
+
+### Q18. How does the state hash chain work?
 
 Every `StateContainer` PDA maintains a `state_hash` field (SHA256 of the current ciphertext bytes) and a monotonically increasing `version` counter. When the node posts a result:
 
