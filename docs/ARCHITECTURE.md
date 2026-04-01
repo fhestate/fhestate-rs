@@ -51,6 +51,7 @@ flowchart TB
         Node["FHE Executor Node"]
         Compute["Homomorphic Engine"]
         Cache["Content-Addressed Cache"]
+        Aggregator["Confidential Aggregator"]
     end
 
     %% Flows
@@ -59,9 +60,10 @@ flowchart TB
     PDA -->|Emit Event| Node
     Node -->|Resolve URI| Cache
     Node -->|Run FHE| Compute
+    Compute -->|Tally| Aggregator
     
     %% Return Path
-    Compute -->|Post Result| Program
+    Aggregator -->|Post Result| Program
     Program -->|Update| PDA
     Program -->|Settle| Tasks
 
@@ -85,7 +87,8 @@ The mathematical core that allows computation on encrypted data. TFHE (Torus Ful
 *   **Probabilistic Encryption**: Every call to `encrypt()` produces a different ciphertext. The same plaintext `42` encrypted twice yields completely different bit patterns — defeating pattern-matching attacks.
 *   **Noise Budget**: Each FHE operation adds cryptographic noise to the ciphertext. If noise exceeds the bootstrapping threshold, decryption fails. TFHE-rs manages this automatically via bootstrapping during operations.
 *   **Types used**: `FheUint8` (for demo/string ops), `FheUint32` (primary computation type), `FheUint64` (available).
-*   **Operations**: Arithmetic (`+`, `-`, `*`), Bitwise (`AND`, `OR`, `XOR`), Comparison (`lt` cast to integer), and Scalar variants.
+*   **Operations**: Arithmetic (`+`, `-`, `*`), Bitwise (`AND`, `OR`, `XOR`), Comparison (`EQ`, `GT`, `LT`, `MAX`, `MIN`), and Optimized Tallying.
+*   **Tree-Sum Optimization**: The `FheMath::tree_sum` logic enables $O(\log n)$ noise growth for large aggregations, critical for confidential governance scaling.
 *   **Server Key Activation**: The `ServerKey` must be set globally on the thread before any homomorphic operation via `set_server_key()` (or `activate_server_key()` in the SDK). This is a TFHE-rs requirement — the key is stored in thread-local storage.
 
 ### 2. `fhe-cli` (Client)
@@ -96,17 +99,14 @@ The bridge between the user and the blockchain.
 *   **Action**: Interacts with the `coordinator` program to submit tasks or initialize state.
 *   **Security**: Holds the `ClientKey` (Secret) locally. **Never leaves the device.**
 
-### 3. `fhe-node` (Executor)
+### 3. `fhe-node` (Executor & Aggregator)
 
-The decentralized worker that processes FHE tasks.
+The decentralized worker that processes FHE tasks and aggregates multi-party results.
 
-*   **Role**: Listens to `coordinator` events and polls for `Pending` tasks and `StateContainer` version bumps.
-*   **Poll cycle**: Every `POLL_INTERVAL_SECS` (2s), the `ExecutorService` calls `ChainListener::get_program_accounts()` filtered by the `account:Task` Anchor discriminator to find pending tasks, and `get_state_containers()` filtered by `account:StateContainer` to detect inline input updates.
-*   **Dual detection paths**: Task accounts (standard path) and StateContainer version bumps (inline path). For inline tasks, the node fetches the recent transaction from chain to extract the op code from the `submit_input` instruction data.
-*   **Action**: Performs "Blind Computation" via `StateTransition::apply()` — loads old state from cache, runs `FheMath::execute_op(op, &old_ct, &input_ct)`, writes new state to `.fhe_cache/`, posts result back on-chain.
+*   **Role**: Listens to `coordinator` events and polls for `Pending` tasks.
+*   **Confidential Aggregator**: Specializes in the **Dark DAO** protocol, using homomorphic branch logic to tally votes and detect winners without revealing individual scores or margins.
+*   **Action**: Performs "Blind Computation" via `StateTransition::apply()`.
 *   **Security**: Only holds the `ServerKey` (Public). **Cannot see plaintext.**
-*   **Staking**: Executors must stake SOL via `register_executor` to participate. Slashing is triggered by `challenge_task`.
-*   **Processed state tracking**: Maintains a `HashMap<Pubkey, u64>` of `state_pda → last_seen_version` to avoid reprocessing the same state update.
 
 ---
 
@@ -134,6 +134,22 @@ FHEstate uses a **Staked-Executor Model** to ensure protocol integrity:
 *   **Slashing**: If an executor provides a fraudulent result or reveal, the original submitter (and only the submitter) can call `challenge_task`. This is enforced on-chain: `require!(task.submitter == challenger.key())`.
 *   **Resolution**: Successful challenge immediately transfers `executor.stake` lamports to the challenger via direct lamport manipulation, sets `executor.stake = 0`, `executor.active = false`, and marks the task as `Challenged`.
 *   **V1 Limitation**: Challenge resolution is optimistic — the submitter's claim is trusted. Future versions will implement ZK proof arbitration where the node must prove it applied the correct FHE operation.
+
+---
+
+## 🛡️ Dark DAO: Confidential Governance
+
+FHESTATE provides a specialized architecture for **Confidential Governance (Dark DAO)**, where proposal tallying is performed homomorphically.
+
+### 🌳 Tree-Sum Aggregator
+To scale to thousands of participants, FHESTATE uses a **Binary Tree Aggregator** instead of linear summation:
+- **Efficiency**: Reduces noise growth from $O(n)$ to $O(\log n)$.
+- **Stability**: Ensures the final tally remains decryptable even after 1000+ operations.
+
+### 🕵️ Private Winner Detection
+Using homomorphic comparison gates (`MAX` / `EQ`), the aggregator determines the winning choice locally:
+- Only the **Winner ID** or **Final Outcome** is revealed.
+- **Individual votes** and **margins between candidates** remain cryptographically hidden forever.
 
 ---
 
@@ -186,7 +202,7 @@ Proof = SHA256( Serialize( Encrypted_Data ) )
 | **State Rollback** | ✅ **Solved** | `StateContainer.version` is monotonically increasing. Hash chain means you cannot revert to an earlier state without breaking the chain. |
 | **Key Theft (Server)** | ✅ **By Design** | Server key is public — possessing it only lets you run FHE ops, not decrypt anything. |
 | **Key Theft (Client)** | ⚠️ **User Risk** | Users must protect `client_key.bin`. Loss of this key means permanent data loss. No recovery mechanism exists. |
-| **Malicious Node** | ⚠️ **Partial** | Node can submit wrong results but staking/slashing disincentivizes this. ZK proof of correct execution is a roadmap item. |
+| **Malicious Node** | 🛡️ **Mitigated** | Node can submit wrong results but staking/slashing disincentivizes this. Future ZK-verification is planned. |
 
 ---
 
@@ -200,8 +216,10 @@ Benchmarks run on standard consumer hardware (M1/M2 Class).
 | :--- | :--- | :--- |
 | **Encrypt `u8`** | `52ms` | Fast enough for interactive CLI |
 | **Decrypt `u8`** | `48ms` | Instant for user |
-| **Add `u8 + u8`** | `103ms` | Homomorphic Addition |
-| **Mul `u8 * u8`** | `850ms` | Homomorphic Multiplication (Expensive) |
+| **Add `u32 + u32`** | `112ms` | Homomorphic Addition |
+| **Mul `u32 * u32`** | `850ms` | Homomorphic Multiplication |
+| **Tree-Sum (8-way)** | `3200ms` | **Optimized Binary Tallying** |
+| **Winner (3-way)** | `1200ms` | **Confidential Winner Detection** |
 
 ### Blockchain Latency
 
