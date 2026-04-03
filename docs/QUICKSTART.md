@@ -104,11 +104,15 @@ cargo run --release --bin fhe_proof -- keygen --out-dir fhe_keys
 
 ---
 
-### Step 5: Run Local FHE Demo
-Verify the blind computation logic on your machine.
-```bash
+# Run the verification suite (keygen + benchmark)
 cargo run --release --bin fhe_proof -- demo
 ```
+
+**What it verifies:**
+- ✅ **Key Generation**: Lattice-based 128-bit security.
+- ✅ **Comparison Logic**: Encrypted `GT`, `LT`, `EQ`.
+- ✅ **Branching**: Homomorphic `if_then_else`.
+- ✅ **Aggregations**: Optimized **Tree-Sum** logic.
 
 **Expected Output:**
 ```text
@@ -152,7 +156,7 @@ cargo run --release --bin fhe-cli -- submit --op 0 --value 42
 4. In Coordinator mode (`--program <YOUR_ID>`), a full `Task` account is created on-chain with the `input_hash`, `input_uri`, and `operation` fields populated
 
 > [!TIP]
-> Use `--op 0` for ADD, `--op 2` for MUL (slow), `--op 3` for CMP. See the full op code table in [API.md](API.md).
+> Use `--op 0` for ADD, `--op 10` for EQ, `--op 12` for GT, and `--op 30` for **VOTE_TALLY** (Optimized Tree-Sum). See the full op code table in [API.md](API.md).
 
 ---
 
@@ -195,9 +199,8 @@ For production or custom cryptographic requirements:
 | **"Server key not active"** | `set_server_key()` not called | Ensure `keys.activate()` or `activate_server_key(&server_key)` is called before any FHE op. |
 | **Build takes forever** | Debug mode compilation | Always use `--release` flag — debug mode for FHE is 50-100x slower. |
 
-### Performance Tips
-*   **ALWAYS use `--release`**: Debug mode for FHE is 50x slower.
-*   **GPU Acceleration**: FHESTATE is migrating to `tfhe-cuda` for 10x faster multiplication in Q3.
+*   **ALWAYS use `--release`**: FHE computation in debug mode is 50-100x slower.
+*   **Tree-Sum for Large DAOs**: For more than 10 votes, use the `VOTE_TALLY` operator to keep cryptographic noise within a safe budget.
 *   **Parallel Builds**: Use `cargo build --release -j$(nproc)` for faster compilation.
 
 ---
