@@ -374,17 +374,17 @@ impl VotingSystem {
         Self { client_key, server_key }
     }
     
-    fn cast_vote(&self, vote: u8) -> FheUint8 {
-        FheUint8::encrypt(vote, &self.client_key)
+    fn cast_vote(&self, value: u32) -> FheUint32 {
+        FheMath::encrypt_u32(value, &self.client_key)
     }
     
-    fn tally_votes(&self, encrypted_votes: Vec<FheUint8>) -> FheUint8 {
-        encrypted_votes.into_iter()
-            .fold(FheUint8::encrypt(0, &self.client_key), |acc, vote| acc + vote)
+    fn tally_votes(&self, votes: Vec<FheUint32>) -> FheUint32 {
+        // Uses the optimized O(log n) Tree-Sum primitive
+        VotingTally::tally_binary_votes(votes).unwrap()
     }
     
-    fn reveal_count(&self, encrypted_count: &FheUint8) -> u8 {
-        encrypted_count.decrypt(&self.client_key)
+    fn reveal_count(&self, encrypted_count: &FheUint32) -> u32 {
+        FheMath::decrypt_u32(encrypted_count, &self.client_key)
     }
 }
 
@@ -416,12 +416,17 @@ impl Auction {
         Self { client_key }
     }
     
-    fn submit_bid(&self, amount: u8) -> FheUint8 {
-        FheUint8::encrypt(amount, &self.client_key)
+    fn submit_bid(&self, amount: u32) -> FheUint32 {
+        FheMath::encrypt_u32(amount, &self.client_key)
     }
     
-    fn reveal_winner(&self, winning_bid: &FheUint8) -> u8 {
-        winning_bid.decrypt(&self.client_key)
+    fn find_winner(&self, bids: &[FheUint32]) -> FheUint32 {
+        // Blind winner detection using homomorphic max
+        VotingTally::find_winner(bids).unwrap()
+    }
+
+    fn reveal_winner(&self, winner: &FheUint32) -> u32 {
+        FheMath::decrypt_u32(winner, &self.client_key)
     }
 }
 ```
