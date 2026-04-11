@@ -4,6 +4,7 @@ use sha2::{Digest, Sha256};
 use std::fs::{self, File};
 use std::io::{Read, Write};
 use std::path::Path;
+use tracing::warn;
 
 /// Local file-based cache for ciphertexts.
 /// Uses content-addressed storage (SHA256 hash of content as filename).
@@ -16,7 +17,7 @@ impl LocalCache {
     /// Create cache with specified directory.
     pub fn new(dir: &str) -> Self {
         if let Err(e) = fs::create_dir_all(dir) {
-            log::warn!("Failed to create cache directory: {}", e);
+            warn!("Failed to create cache directory '{}': {}", dir, e);
         }
         Self {
             dir: dir.to_string(),
@@ -24,6 +25,7 @@ impl LocalCache {
     }
 
     /// Create cache with default directory.
+    #[allow(clippy::should_implement_trait)]
     pub fn default() -> Self {
         Self::new(CACHE_DIR)
     }
@@ -33,7 +35,7 @@ impl LocalCache {
     pub fn store(&self, data: &[u8]) -> FheResult<String> {
         let hash = self.hash_bytes(data);
         // Use full 32-byte hash — was &hash[0..16] which doubled collision risk
-        let hash_hex = hex::encode(&hash);
+        let hash_hex = hex::encode(hash);
         let path = format!("{}/{}.bin", self.dir, hash_hex);
 
         let mut file = File::create(&path)?;
