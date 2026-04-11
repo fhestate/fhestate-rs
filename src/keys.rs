@@ -4,6 +4,7 @@ use std::fs::{self, File};
 use std::io::{BufWriter, Read, Write};
 use std::path::Path;
 use tfhe::{generate_keys, set_server_key, ClientKey, ConfigBuilder, ServerKey};
+use tracing::{info, warn};
 
 /// Manages FHE keypair lifecycle (generation, storage, loading).
 pub struct KeyManager {
@@ -12,94 +13,104 @@ pub struct KeyManager {
 }
 
 impl KeyManager {
-    /// Generate fresh FHE keypair with 128-bit security.
-    /// This operation takes 30-60 seconds on typical hardware.
+    /// Generate a fresh FHE keypair with 128-bit security.
+    ///
+    /// ⚠️  This operation takes **30–90 seconds** on typical hardware due to
+    /// the underlying TFHE-rs lattice parameter setup. This is expected behaviour.
     pub fn generate() -> FheResult<Self> {
-        println!("   [1/3] Configuring FHE parameters...");
+        info!("configuring FHE parameters (128-bit security)");
         let config = ConfigBuilder::default().build();
 
-        println!("   [2/3] Generating keys (this involves heavy cryptography)...");
+        info!("generating keypair — this may take 30–90 seconds");
         let (client_key, server_key) = generate_keys(config);
 
-        println!("   [3/3] Keys generated successfully.");
+        info!("keypair generation complete");
         Ok(Self {
             client_key,
             server_key,
         })
     }
 
-    /// Activate server key for homomorphic computations on current thread.
+    /// Activate the server key for homomorphic computations on the current thread.
+    /// Must be called before any FHE operation.
     pub fn activate(&self) {
         set_server_key(self.server_key.clone());
+        info!("server key activated on current thread");
     }
 
-    /// Save keypair to specified directory.
+    /// Save keypair to `dir`. Creates the directory if it does not exist.
     pub fn save(&self, dir: &str) -> FheResult<()> {
         fs::create_dir_all(dir)?;
 
-        println!("   [Save 1/2] Saving Client Key...");
         let client_path = format!("{}/client_key.bin", dir);
+        info!(path = %client_path, "saving client key");
         let mut client_file = BufWriter::new(File::create(&client_path)?);
         bincode::serialize_into(&mut client_file, &self.client_key)?;
         client_file.flush()?;
-        println!("              Saved: {}", client_path);
 
-        println!("   [Save 2/2] Saving Server Key (this is large, please wait)...");
         let server_path = format!("{}/server_key.bin", dir);
+        info!(path = %server_path, "saving server key (large file — please wait)");
         let mut server_file = BufWriter::new(File::create(&server_path)?);
         bincode::serialize_into(&mut server_file, &self.server_key)?;
         server_file.flush()?;
-        println!("              Saved: {}", server_path);
 
+        info!(dir = %dir, "keypair saved");
         Ok(())
     }
 
-    /// Load keypair from specified directory.
+    /// Load keypair from `dir`.
     pub fn load(dir: &str) -> FheResult<Self> {
+        info!(dir = %dir, "loading keypair");
         let client_key = load_client_key(&format!("{}/client_key.bin", dir))?;
         let server_key = load_server_key(&format!("{}/server_key.bin", dir))?;
+        info!("keypair loaded successfully");
         Ok(Self {
             client_key,
             server_key,
         })
     }
 
-    /// Load from default directory.
+    /// Load from the default key directory (`fhe_keys/`).
     pub fn load_default() -> FheResult<Self> {
         Self::load(KEY_DIR)
     }
 }
 
-/// Load client key from file path.
+/// Load a client key from a file path.
 pub fn load_client_key(path: &str) -> FheResult<ClientKey> {
     if !Path::new(path).exists() {
+        warn!(path = %path, "client key file not found");
         return Err(FheError::KeyNotFound(path.to_string()));
     }
     let mut file = File::open(path)?;
     let mut bytes = Vec::new();
     file.read_to_end(&mut bytes)?;
-    let key: ClientKey = bincode::deserialize(&bytes)?;
+    let key: ClientKey =
+        bincode::deserialize(&bytes).map_err(|_| FheError::KeyLoadFailed(path.to_string()))?;
     Ok(key)
 }
 
-/// Load server key from file path.
+/// Load a server key from a file path.
 pub fn load_server_key(path: &str) -> FheResult<ServerKey> {
     if !Path::new(path).exists() {
+        warn!(path = %path, "server key file not found");
         return Err(FheError::KeyNotFound(path.to_string()));
     }
     let mut file = File::open(path)?;
     let mut bytes = Vec::new();
     file.read_to_end(&mut bytes)?;
-    let key: ServerKey = bincode::deserialize(&bytes)?;
+    let key: ServerKey =
+        bincode::deserialize(&bytes).map_err(|_| FheError::KeyLoadFailed(path.to_string()))?;
     Ok(key)
 }
 
-/// Activate server key globally for FHE operations.
+/// Activate a server key globally for FHE operations on the current thread.
 pub fn activate_server_key(key: &ServerKey) {
     set_server_key(key.clone());
+    info!("server key activated");
 }
 
-/// Check if keys exist in specified directory.
+/// Returns true if both `client_key.bin` and `server_key.bin` exist in `dir`.
 pub fn keys_exist(dir: &str) -> bool {
     Path::new(&format!("{}/client_key.bin", dir)).exists()
         && Path::new(&format!("{}/server_key.bin", dir)).exists()
@@ -111,15 +122,33 @@ mod tests {
 
     #[test]
     fn test_keys_exist_false_for_missing_dir() {
-        assert!(!keys_exist("/totally_nonexistent_fhe_dir_9x7z"),
-            "keys_exist must return false when directory does not exist");
+        assert!(
+            !keys_exist("/totally_nonexistent_fhe_dir_9x7z"),
+            "keys_exist must return false when directory does not exist"
+        );
     }
 
     #[test]
     fn test_keys_exist_false_when_dir_is_empty() {
         let dir = format!(".fhe_test_keys_{}", std::process::id());
         std::fs::create_dir_all(&dir).unwrap();
-        assert!(!keys_exist(&dir), "keys_exist must return false when key files are absent");
+        assert!(
+            !keys_exist(&dir),
+            "keys_exist must return false when key files are absent"
+        );
         std::fs::remove_dir_all(&dir).unwrap();
     }
+
+    #[test]
+    fn test_load_missing_client_key_returns_key_not_found() {
+        let result = load_client_key("/nonexistent/client_key.bin");
+        assert!(matches!(result, Err(FheError::KeyNotFound(_))));
+    }
+
+    #[test]
+    fn test_load_missing_server_key_returns_key_not_found() {
+        let result = load_server_key("/nonexistent/server_key.bin");
+        assert!(matches!(result, Err(FheError::KeyNotFound(_))));
+    }
 }
+
