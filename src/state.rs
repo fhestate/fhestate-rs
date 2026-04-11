@@ -10,6 +10,7 @@ use crate::cache::LocalCache;
 use crate::errors::{FheError, FheResult};
 use crate::math::FheMath;
 use sha2::{Digest, Sha256};
+use tracing::{info, instrument};
 
 /// Off-chain FHE state transition engine.
 pub struct StateTransition;
@@ -29,6 +30,7 @@ impl StateTransition {
     /// * `state_uri`   - Current state URI, or `None` for a fresh account (bootstraps from input).
     /// * `input_bytes` - Serialised `FheUint32` ciphertext from the submitter.
     /// * `op`          - Operation code (see `crate::constants::ops`).
+    #[instrument(skip(cache, input_bytes), fields(op = op, has_state = state_uri.is_some()))]
     pub fn apply(
         cache: &LocalCache,
         state_uri: Option<&str>,
@@ -48,7 +50,7 @@ impl StateTransition {
         let new_state_ct = match state_uri {
             None => {
                 // No prior state: treat the input itself as the new state.
-                log::info!("StateTransition: fresh account — using input as initial state");
+                info!("fresh account — using input as initial state");
                 input_ct
             }
             Some(uri) => {
@@ -57,9 +59,8 @@ impl StateTransition {
                 let old_ct = FheMath::deserialize_u32(&old_bytes)?;
 
                 // Apply the requested FHE op.
-                FheMath::execute_op(op, &old_ct, &input_ct).ok_or_else(|| {
-                    FheError::InvalidOperation(op)
-                })?
+                FheMath::execute_op(op, &old_ct, &input_ct)
+                    .ok_or(FheError::InvalidOperation(op))?
             }
         };
 
@@ -73,7 +74,7 @@ impl StateTransition {
         let mut hash = [0u8; 32];
         hash.copy_from_slice(&hasher.finalize());
 
-        log::info!("StateTransition: op={} -> new_uri={}", op, new_uri);
+        info!(op, new_uri = %new_uri, "state transition complete");
         Ok((new_uri, hash))
     }
 }
