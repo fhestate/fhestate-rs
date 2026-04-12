@@ -4,8 +4,8 @@ mod net;
 mod service;
 
 use clap::Parser;
-use log::{error, info};
 use std::process;
+use tracing::{error, info};
 
 #[derive(Parser, Debug)]
 #[command(name = "fhe-node", version, about = "FHEstate Executor Node")]
@@ -28,7 +28,9 @@ struct Args {
 
 #[tokio::main]
 async fn main() {
-    env_logger::init_from_env(env_logger::Env::default().default_filter_or("info"));
+    tracing_subscriber::fmt()
+        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+        .init();
     let args = Args::parse();
 
     info!("FHEstate Executor Node v{}", env!("CARGO_PKG_VERSION"));

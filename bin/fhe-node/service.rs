@@ -1,33 +1,32 @@
-use fhestate_rs::constants::{POLL_INTERVAL_SECS, ops};
+use fhestate_rs::constants::{ops, POLL_INTERVAL_SECS};
 use fhestate_rs::{activate_server_key, load_server_key, LocalCache};
 
-#[path = "net.rs"]
-mod net;
-use net::ChainListener;
+use crate::net::ChainListener;
 
-
-use tokio::time::{sleep, Duration};
-use log::{info, warn, error};
 use sha2::Digest;
-use std::sync::{Arc, Mutex};
-use std::collections::{VecDeque, HashMap};
+
+use solana_sdk::pubkey::Pubkey;
+use solana_sdk::signature::{Keypair, Signer};
+use solana_sdk::transaction::Transaction;
+use solana_transaction_status::{option_serializer::OptionSerializer, UiTransactionEncoding};
+use std::collections::{HashMap, VecDeque};
 use std::error::Error;
 use std::fs::File;
 use std::path::Path;
-use solana_sdk::signature::{Keypair, Signer};
-use solana_sdk::pubkey::Pubkey;
-use solana_sdk::instruction::{AccountMeta};
-use solana_sdk::transaction::Transaction;
 use std::str::FromStr;
-use solana_transaction_status::{UiTransactionEncoding, option_serializer::OptionSerializer};
-use hex;
+use std::sync::{Arc, Mutex};
+use tokio::time::{sleep, Duration};
+use tracing::{error, info, warn};
 
 /// Minimum byte length of a serialised Task Anchor account.
-const TASK_MIN_LEN: usize = 150; 
+const TASK_MIN_LEN: usize = 150;
 
 // Anchor Account Discriminators for Dark DAO
+#[allow(dead_code)]
 const DAO_PROPOSAL_DISC: [u8; 8] = [26, 94, 189, 187, 116, 136, 53, 33]; // account:Proposal
+#[allow(dead_code)]
 const DAO_TALLY_DISC: [u8; 8] = [173, 147, 12, 178, 147, 12, 178, 147]; // account:EncryptedTally
+#[allow(dead_code)]
 const DAO_VOTE_RECORD_DISC: [u8; 8] = [182, 183, 184, 185, 186, 187, 188, 189]; // Placeholder - will calculate real ones below
 
 #[allow(dead_code)]
@@ -128,32 +127,45 @@ impl ExecutorService {
     async fn poll_dao_proposals(&self) -> Result<(), Box<dyn Error>> {
         // Find all active Proposals
         let accounts = self.listener.get_program_accounts(&self.program_id)?;
-        
+
         let mut prop_disc = sha2::Sha256::new();
         prop_disc.update(b"account:Proposal");
         let prop_target_disc = &prop_disc.finalize()[..8];
 
         for (pubkey, data) in accounts {
-            if data.len() < 192 || &data[..8] != prop_target_disc { continue; }
-            
+            if data.len() < 192 || &data[..8] != prop_target_disc {
+                continue;
+            }
+
             // Proposal status at offset 188
-            let status_byte = data[188]; 
-            if status_byte != 0 { continue; } // Only Active (0)
+            let status_byte = data[188];
+            if status_byte != 0 {
+                continue;
+            } // Only Active (0)
 
             info!("   Active Proposal Detected: {}", pubkey);
-            
+
             // Look for VoteCast events in recent transactions for this proposal
-            let sigs = self.listener.get_client().get_signatures_for_address(&pubkey)?;
+            let sigs = self
+                .listener
+                .get_client()
+                .get_signatures_for_address(&pubkey)?;
             for sig_info in sigs {
                 let sig = solana_sdk::signature::Signature::from_str(&sig_info.signature)?;
-                let tx = self.listener.get_client().get_transaction(&sig, UiTransactionEncoding::Base64)?;
-                
+                let tx = self
+                    .listener
+                    .get_client()
+                    .get_transaction(&sig, UiTransactionEncoding::Base64)?;
+
                 if let Some(meta) = tx.transaction.meta {
                     if let OptionSerializer::Some(logs) = meta.log_messages {
                         for log in logs {
                             if log.contains("VoteCast") {
                                 let mut queue = self.task_queue.lock().unwrap();
-                                if !queue.iter().any(|t| t.account == pubkey && t.id == sig_info.slot) {
+                                if !queue
+                                    .iter()
+                                    .any(|t| t.account == pubkey && t.id == sig_info.slot)
+                                {
                                     info!("   Queuing DAO Tally Update for proposal {}", pubkey);
                                     queue.push_back(FheTask {
                                         account: pubkey,
@@ -177,27 +189,38 @@ impl ExecutorService {
     async fn poll_tasks(&self) -> Result<(), Box<dyn Error>> {
         let accounts = self.listener.get_program_accounts(&self.program_id)?;
         for (pubkey, data) in accounts {
-            if data.len() < TASK_MIN_LEN { continue; }
-            
+            if data.len() < TASK_MIN_LEN {
+                continue;
+            }
+
             let mut disc_hasher = sha2::Sha256::new();
             disc_hasher.update(b"account:Task");
             let disc = &disc_hasher.finalize()[..8];
-            if data[..8] != *disc { continue; }
+            if data[..8] != *disc {
+                continue;
+            }
 
             let id = u64::from_le_bytes(data[8..16].try_into().unwrap());
             let submitter = Pubkey::new_from_array(data[16..48].try_into().unwrap());
             let target_owner = Pubkey::new_from_array(data[48..80].try_into().unwrap());
-            
+
             let uri_len = u32::from_le_bytes(data[112..116].try_into().unwrap()) as usize;
-            if data.len() < 116 + uri_len { continue; }
+            if data.len() < 116 + uri_len {
+                continue;
+            }
             let input_uri = String::from_utf8_lossy(&data[116..116 + uri_len]).to_string();
-            
+
             let op_offset = 116 + uri_len;
             let op = data[op_offset];
             let status_byte = data[op_offset + 1];
 
-            if status_byte == 0 || status_byte == 4 { // Pending or RevealRequested
-                let status = if status_byte == 0 { TaskStatus::Pending } else { TaskStatus::RevealRequested };
+            if status_byte == 0 || status_byte == 4 {
+                // Pending or RevealRequested
+                let status = if status_byte == 0 {
+                    TaskStatus::Pending
+                } else {
+                    TaskStatus::RevealRequested
+                };
                 let mut queue = self.task_queue.lock().unwrap();
                 if !queue.iter().any(|t| t.account == pubkey) {
                     queue.push_back(FheTask {
@@ -209,32 +232,49 @@ impl ExecutorService {
                         input_uri,
                         status,
                     });
-                    info!("   Task Detected: #{} status {:?} at {}", id, status, pubkey);
+                    info!(
+                        "   Task Detected: #{} status {:?} at {}",
+                        id, status, pubkey
+                    );
                 }
             }
         }
 
         let states = self.listener.get_state_containers(&self.program_id)?;
         for (pubkey, data) in states {
-            if data.len() < 8 + 32 + 32 + 4 + 8 { continue; }
-            
+            if data.len() < 8 + 32 + 32 + 4 + 8 {
+                continue;
+            }
+
             let owner = Pubkey::new_from_array(data[8..40].try_into().unwrap());
             let uri_len = u32::from_le_bytes(data[72..76].try_into().unwrap()) as usize;
             let version_offset = 76 + uri_len;
-            if data.len() < version_offset + 8 { continue; }
-            let version = u64::from_le_bytes(data[version_offset..version_offset+8].try_into().unwrap());
+            if data.len() < version_offset + 8 {
+                continue;
+            }
+            let version =
+                u64::from_le_bytes(data[version_offset..version_offset + 8].try_into().unwrap());
 
             let mut processed = self.processed_states.lock().unwrap();
             let last_version = *processed.get(&pubkey).unwrap_or(&0);
 
             if version > last_version {
-                info!("   Inline State Update Detected for PDA {} (v{} > v{})", pubkey, version, last_version);
-                
-                let sigs = self.listener.get_client().get_signatures_for_address(&pubkey)?;
+                info!(
+                    "   Inline State Update Detected for PDA {} (v{} > v{})",
+                    pubkey, version, last_version
+                );
+
+                let sigs = self
+                    .listener
+                    .get_client()
+                    .get_signatures_for_address(&pubkey)?;
                 if let Some(sig_info) = sigs.first() {
                     let sig = solana_sdk::signature::Signature::from_str(&sig_info.signature)?;
-                    let tx_resp = self.listener.get_client().get_transaction(&sig, UiTransactionEncoding::Base64)?;
-                    
+                    let tx_resp = self
+                        .listener
+                        .get_client()
+                        .get_transaction(&sig, UiTransactionEncoding::Base64)?;
+
                     let mut input_uri = String::new();
                     let mut op = 0;
 
@@ -244,15 +284,27 @@ impl ExecutorService {
                             disc_hasher.update(b"global:submit_input");
                             let target_disc = &disc_hasher.finalize()[..8];
 
-                            if let solana_transaction_status::EncodedTransaction::Binary(bin_tx, _) = tx_resp.transaction.transaction {
-                                use base64::{Engine as _, engine::general_purpose};
-                                let decoded_tx_bytes = general_purpose::STANDARD.decode(bin_tx.to_string()).unwrap_or_default();
-                                if let Ok(tx) = bincode::deserialize::<solana_sdk::transaction::Transaction>(&decoded_tx_bytes) {
+                            if let solana_transaction_status::EncodedTransaction::Binary(
+                                bin_tx,
+                                _,
+                            ) = tx_resp.transaction.transaction
+                            {
+                                use base64::{engine::general_purpose, Engine as _};
+                                let decoded_tx_bytes = general_purpose::STANDARD
+                                    .decode(&bin_tx)
+                                    .unwrap_or_default();
+                                if let Ok(tx) = bincode::deserialize::<
+                                    solana_sdk::transaction::Transaction,
+                                >(&decoded_tx_bytes)
+                                {
                                     for ix in &tx.message.instructions {
                                         if ix.data.len() >= 8 && &ix.data[..8] == target_disc {
                                             if let Some(&last_byte) = ix.data.last() {
                                                 op = last_byte;
-                                                info!("   Extracted Op Code: {} from transaction {}", op, sig);
+                                                info!(
+                                                    "   Extracted Op Code: {} from transaction {}",
+                                                    op, sig
+                                                );
                                             }
                                             break;
                                         }
@@ -264,15 +316,15 @@ impl ExecutorService {
                             input_uri = format!("inline://{}", hash_hex);
                         }
                     }
-                    
+
                     if !input_uri.is_empty() {
                         let mut queue = self.task_queue.lock().unwrap();
                         queue.push_back(FheTask {
                             account: Pubkey::default(),
                             id: version,
                             submitter: owner,
-                            target_owner: owner, 
-                            operation: op, 
+                            target_owner: owner,
+                            operation: op,
                             input_uri,
                             status: TaskStatus::Pending,
                         });
@@ -294,12 +346,18 @@ impl ExecutorService {
             info!("Processing Task #{} (Op: {})", task.id, task.operation);
 
             let input_bytes: Vec<u8> = if task.input_uri.starts_with("inline://") {
-                info!("   Task #{} resolving inline ciphertext from local cache...", task.id);
+                info!(
+                    "   Task #{} resolving inline ciphertext from local cache...",
+                    task.id
+                );
                 let local_uri = task.input_uri.replace("inline://", "local://");
                 match self.cache.load(&local_uri) {
                     Ok(bytes) => bytes,
                     Err(e) => {
-                        error!("   Task #{} error: failed to load inline ciphertext: {}", task.id, e);
+                        error!(
+                            "   Task #{} error: failed to load inline ciphertext: {}",
+                            task.id, e
+                        );
                         return Ok(());
                     }
                 }
@@ -307,29 +365,41 @@ impl ExecutorService {
                 match self.cache.load(&task.input_uri) {
                     Ok(bytes) => bytes,
                     Err(e) => {
-                        error!("   Task #{} error: failed to load input ciphertext: {}", task.id, e);
+                        error!(
+                            "   Task #{} error: failed to load input ciphertext: {}",
+                            task.id, e
+                        );
                         return Ok(());
                     }
                 }
             } else {
                 // Fallback direct load
-                match self.cache.load(&task.input_uri.replace("ipfs://", "local://")) {
+                match self
+                    .cache
+                    .load(&task.input_uri.replace("ipfs://", "local://"))
+                {
                     Ok(bytes) => bytes,
                     Err(_) => {
-                        error!("   Task #{} error: resolving data failed for {}", task.id, task.input_uri);
+                        error!(
+                            "   Task #{} error: resolving data failed for {}",
+                            task.id, task.input_uri
+                        );
                         return Ok(());
                     }
                 }
             };
 
             if task.status == TaskStatus::RevealRequested {
-                info!("   Task #{} is a Reveal Request. Generating decryption share...", task.id);
+                info!(
+                    "   Task #{} is a Reveal Request. Generating decryption share...",
+                    task.id
+                );
                 let reveal_data = format!("REVEALED:StateHash:{}", hex::encode(&input_bytes));
-                
+
                 let mut disc_hasher = sha2::Sha256::new();
                 disc_hasher.update(b"global:provide_reveal");
                 let disc_hash = disc_hasher.finalize();
-                
+
                 let mut data = disc_hash[..8].to_vec();
                 let reveal_bytes = reveal_data.as_bytes();
                 data.extend_from_slice(&(reveal_bytes.len() as u32).to_le_bytes());
@@ -343,14 +413,14 @@ impl ExecutorService {
                         solana_sdk::instruction::AccountMeta::new(self.keypair.pubkey(), true),
                     ],
                 );
-                
+
                 self.send_tx(vec![ix]).await?;
                 return Ok(());
             }
 
             let (state_pda, _bump) = Pubkey::find_program_address(
                 &[b"state", task.target_owner.as_ref()],
-                &self.program_id
+                &self.program_id,
             );
 
             let old_state_uri = match self.listener.get_client().get_account_data(&state_pda) {
@@ -379,27 +449,32 @@ impl ExecutorService {
                 }
             };
             let duration = start.elapsed();
-            info!("   [PROFILING] Task #{} | FHE Execution Time: {:?} | Op: {}", task.id, duration, task.operation);
+            info!(
+                "   [PROFILING] Task #{} | FHE Execution Time: {:?} | Op: {}",
+                task.id, duration, task.operation
+            );
 
-            let previous_state_hash: [u8; 32] = match self.listener.get_client().get_account_data(&state_pda) {
-                Ok(data) if data.len() >= 72 => {
-                    data[40..72].try_into().unwrap()
-                }
-                _ => [0u8; 32],
-            };
+            let previous_state_hash: [u8; 32] =
+                match self.listener.get_client().get_account_data(&state_pda) {
+                    Ok(data) if data.len() >= 72 => data[40..72].try_into().unwrap(),
+                    _ => [0u8; 32],
+                };
 
             info!("   FHE Computation Success. New State: {}", new_uri);
 
             let mut discriminator_hasher = sha2::Sha256::new();
             let is_inline = task.account == Pubkey::default();
-            
+
             let is_dao_tally = task.operation == ops::VOTE_TALLY;
             let is_dao_finalize = task.operation == ops::CHECK_WINNER;
 
             if is_dao_tally {
                 discriminator_hasher.update(b"global:update_tally");
-                let (tally_pda, _) = Pubkey::find_program_address(&[b"tally", task.target_owner.as_ref()], &self.program_id);
-                
+                let (tally_pda, _) = Pubkey::find_program_address(
+                    &[b"tally", task.target_owner.as_ref()],
+                    &self.program_id,
+                );
+
                 let disc_hash = discriminator_hasher.finalize();
                 let mut data = disc_hash[..8].to_vec();
                 data.extend_from_slice(&result_hash);
@@ -411,7 +486,10 @@ impl ExecutorService {
                     self.program_id,
                     &data,
                     vec![
-                        solana_sdk::instruction::AccountMeta::new_readonly(task.target_owner, false),
+                        solana_sdk::instruction::AccountMeta::new_readonly(
+                            task.target_owner,
+                            false,
+                        ),
                         solana_sdk::instruction::AccountMeta::new(tally_pda, false),
                         solana_sdk::instruction::AccountMeta::new(self.keypair.pubkey(), true),
                     ],
@@ -422,8 +500,11 @@ impl ExecutorService {
 
             if is_dao_finalize {
                 discriminator_hasher.update(b"global:finalize_tally");
-                let (tally_pda, _) = Pubkey::find_program_address(&[b"tally", task.target_owner.as_ref()], &self.program_id);
-                
+                let (tally_pda, _) = Pubkey::find_program_address(
+                    &[b"tally", task.target_owner.as_ref()],
+                    &self.program_id,
+                );
+
                 let disc_hash = discriminator_hasher.finalize();
                 let mut data = disc_hash[..8].to_vec();
                 data.extend_from_slice(&result_hash);
@@ -449,9 +530,12 @@ impl ExecutorService {
                 let mut exec_disc_hasher = sha2::Sha256::new();
                 exec_disc_hasher.update(b"account:Executor");
                 let exec_disc = &exec_disc_hasher.finalize()[..8];
-                
+
                 for (pk, data) in accounts_data {
-                    if data.len() >= 8 + 32 && &data[..8] == exec_disc && data[8..40] == self.keypair.pubkey().to_bytes() {
+                    if data.len() >= 8 + 32
+                        && &data[..8] == exec_disc
+                        && data[8..40] == self.keypair.pubkey().to_bytes()
+                    {
                         executor_account = pk;
                         break;
                     }
@@ -462,7 +546,7 @@ impl ExecutorService {
                 discriminator_hasher.update(b"global:update_state_pda");
                 vec![
                     solana_sdk::instruction::AccountMeta::new(state_pda, false),
-                    solana_sdk::instruction::AccountMeta::new_readonly(task.submitter, false), 
+                    solana_sdk::instruction::AccountMeta::new_readonly(task.submitter, false),
                     solana_sdk::instruction::AccountMeta::new(executor_account, false),
                     solana_sdk::instruction::AccountMeta::new(self.keypair.pubkey(), true),
                 ]
@@ -498,7 +582,10 @@ impl ExecutorService {
         Ok(())
     }
 
-    async fn send_tx(&self, ixs: Vec<solana_sdk::instruction::Instruction>) -> Result<String, Box<dyn Error>> {
+    async fn send_tx(
+        &self,
+        ixs: Vec<solana_sdk::instruction::Instruction>,
+    ) -> Result<String, Box<dyn Error>> {
         let rpc = self.listener.get_client();
         let blockhash = rpc.get_latest_blockhash()?;
         let tx = Transaction::new_signed_with_payer(
