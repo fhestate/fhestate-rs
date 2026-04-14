@@ -1,8 +1,8 @@
 mod commands;
 
 use clap::{Parser, Subcommand};
-use log::error;
 use std::process;
+use tracing::error;
 
 #[derive(Parser, Debug)]
 #[command(name = "fhe-cli", version, about = "FHEstate Client Tool")]
@@ -79,7 +79,9 @@ enum Commands {
 }
 
 fn main() {
-    env_logger::init_from_env(env_logger::Env::default().default_filter_or("info"));
+    tracing_subscriber::fmt()
+        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+        .init();
     let cli = Cli::parse();
 
     let result = match cli.command {
