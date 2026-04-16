@@ -1,11 +1,11 @@
-//! FHE Performance Profiling and Benchmarking 
+//! FHE Performance Profiling and Benchmarking
 //!
 //! Provides utilities to measure and report execution metrics for FHE operations.
 //! Essential for analyzing noise growth, latency, and hardware acceleration benefits.
 
+use serde::{Deserialize, Serialize};
 use std::time::{Duration, Instant};
-use serde::{Serialize, Deserialize};
-use tfhe::prelude::*;
+
 
 /// Detailed measurement of an FHE operation benchmark.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -42,8 +42,12 @@ impl FheProfiler {
             let elapsed = start.elapsed();
 
             total_dur += elapsed;
-            if elapsed < min_dur { min_dur = elapsed; }
-            if elapsed > max_dur { max_dur = elapsed; }
+            if elapsed < min_dur {
+                min_dur = elapsed;
+            }
+            if elapsed > max_dur {
+                max_dur = elapsed;
+            }
         }
 
         let total_ms = total_dur.as_secs_f64() * 1000.0;
@@ -69,7 +73,11 @@ impl FheProfiler {
         for res in results {
             println!(
                 "║ {:<36} ║ {:<10} ║ {:<12.2} ║ {:<9.2} ║ {:<9.2} ║",
-                res.op_name, res.iterations, res.total_duration_ms, res.avg_duration_ms, res.max_duration_ms
+                res.op_name,
+                res.iterations,
+                res.total_duration_ms,
+                res.avg_duration_ms,
+                res.max_duration_ms
             );
         }
 
@@ -82,7 +90,8 @@ mod tests {
     use super::*;
     use crate::math::FheMath;
     use crate::voting::VotingTally;
-    use tfhe::{ConfigBuilder, generate_keys, set_server_key, FheUint32};
+    use tfhe::{generate_keys, set_server_key, ConfigBuilder, FheUint32};
+    use tfhe::prelude::*;
 
     #[test]
     #[ignore = "Slow FHE keygen — run with: cargo test -- --ignored"]
@@ -113,14 +122,18 @@ mod tests {
         }));
 
         // 3. Black-Box Winner Detection Benchmark
-        results.push(FheProfiler::benchmark("Winner Detection (3 Candidates)", 1, || {
-            let candidates = vec![
-                FheUint32::encrypt(10u32, &client_key),
-                FheUint32::encrypt(42u32, &client_key),
-                FheUint32::encrypt(25u32, &client_key),
-            ];
-            VotingTally::find_winner(&candidates).unwrap()
-        }));
+        results.push(FheProfiler::benchmark(
+            "Winner Detection (3 Candidates)",
+            1,
+            || {
+                let candidates = vec![
+                    FheUint32::encrypt(10u32, &client_key),
+                    FheUint32::encrypt(42u32, &client_key),
+                    FheUint32::encrypt(25u32, &client_key),
+                ];
+                VotingTally::find_winner(&candidates).unwrap()
+            },
+        ));
 
         FheProfiler::print_report(&results);
     }
