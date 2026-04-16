@@ -160,17 +160,19 @@ impl FheMath {
     }
 
     /// Optimized binary tree aggregation for FHE ciphertexts.
-    /// 
+    ///
     /// In FHE, sequential additions (a+b+c+d...) cause noise to grow linearly O(n).
-    /// This binary tree approach ( (a+b) + (c+d) ) grows noise logarithmically O(log n), 
+    /// This binary tree approach ( (a+b) + (c+d) ) grows noise logarithmically O(log n),
     /// reducing the number of costly bootstrapping operations in the critical path.
     pub fn tree_sum(ciphertexts: Vec<FheUint32>) -> Option<FheUint32> {
-        if ciphertexts.is_empty() { return None; }
+        if ciphertexts.is_empty() {
+            return None;
+        }
 
         let mut current_level = ciphertexts;
 
         while current_level.len() > 1 {
-            let mut next_level = Vec::with_capacity((current_level.len() + 1) / 2);
+            let mut next_level = Vec::with_capacity(current_level.len().div_ceil(2));
             let mut it = current_level.into_iter();
 
             while let Some(first) = it.next() {
@@ -195,7 +197,11 @@ mod tests {
     fn test_hash_hex_deterministic_and_64_chars() {
         let h = FheMath::hash_hex(b"fhestate");
         assert_eq!(h.len(), 64, "SHA256 hex must be 64 chars");
-        assert_eq!(FheMath::hash_hex(b"fhestate"), h, "hash must be deterministic");
+        assert_eq!(
+            FheMath::hash_hex(b"fhestate"),
+            h,
+            "hash must be deterministic"
+        );
     }
 
     #[test]
