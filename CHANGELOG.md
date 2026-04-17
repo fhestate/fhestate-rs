@@ -2,7 +2,7 @@
 
 **The chronological evolution of confidential computing on Solana.**
 
-[![Version](https://img.shields.io/badge/Version-v0.1.0-8A2BE2?style=for-the-badge&logo=rocket&logoColor=white)](https://github.com/fhestate/fhestate-rs/releases)
+[![Version](https://img.shields.io/badge/Version-v0.2.0-8A2BE2?style=for-the-badge&logo=rocket&logoColor=white)](https://github.com/fhestate/fhestate-rs/releases)
 [![Status](https://img.shields.io/badge/Status-Public_Alpha-orange?style=for-the-badge&logo=shield)](FAQ.md#q3-is-this-production-ready)
 
 ---
@@ -11,12 +11,32 @@
 
 | Milestone / Version | Focus Area | Status |
 | :--- | :--- | :--- |
-| [**v0.1.0 (Current)**](#010---2026-01-29) | Initial Public Release | ✅ Released |
+| [**v0.2.0 (Current)**](#020---2026-04-17) | Core Refinement & Stability | ✅ Released |
+| [**v0.1.0**](#010---2026-01-29) | Initial Public Release | ✅ Released |
 | [**Milestone 1**](#milestone-1-research--evaluation-november-2025) | Research & Cryptography | ✅ Completed |
 | [**Milestone 2**](#milestone-2-architecture--core-implementation-december-2025) | Core Engine Implementation | ✅ Completed |
 | [**Milestone 3**](#milestone-3-integration--tooling-january-2026) | CLI, Node & Devnet Testing | ✅ Completed |
 | [**Milestone 4**](#milestone-4-documentation--polish-late-january-2026) | Documentation & Branding | ✅ Completed |
 | **Roadmap** | **What's coming next** | 🚀 [**View Full Roadmap →**](https://www.fhestate.org/roadmap) |
+
+---
+
+## [0.2.0] - 2026-04-17
+
+**Core Library Hardening & Tooling Refinement** — Preparation for standalone SDK extraction.
+
+### Changed
+* **Logging System:** Migrated from legacy `log`/`env_logger` to the modern `tracing` ecosystem for structured production logging.
+* **Architecture:** Safely removed the legacy experimental `sdk/` directory to enforce clean separation. The TypeScript SDK will now reside in a dedicated repository `fhestate-sdk`.
+* **Error Handling:** Refactored `errors.rs` to group domain-specific errors (`KeyManagement`, `FheComputation`, `RpcError`).
+* **Code Quality:** Comprehensive `rustfmt` and `clippy` passes applied, eliminating unused imports, type complexity warnings, and manual loop constraints.
+
+### Added
+* **Developer Demos:** Added highly requested offline executable demos in `examples/`:
+  * `counter_demo.rs`: Simulates full Coordinator-style encrypted state progression.
+  * `voting_demo.rs`: Simulates on-chain homomorphic ballot tallying for the Dark DAO.
+* **Versioning & Constants:** Added `PROTOCOL_VERSION` (v1) and `CRATE_VERSION` directly to `constants.rs` to maintain robust blockchain compatibility checks.
+* **On-Chain Error Codegen:** Integrated specific numeric on-chain anchor errors (6000-6003 series for both Coordinator and Dark DAO) back into the core library for unified error decoding.
 
 ---
 
