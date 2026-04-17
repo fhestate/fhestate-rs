@@ -1,15 +1,15 @@
-use tfhe::prelude::*;
-use tfhe::{generate_keys, ConfigBuilder, FheUint8, set_server_key, ClientKey, ServerKey};
-use sha2::{Sha256, Digest};
-use std::fs::File;
-use std::io::{Read, Write};
-use std::error::Error;
 use clap::{Parser, Subcommand};
 use log::info;
+use sha2::{Digest, Sha256};
+use std::error::Error;
+use std::fs::File;
+use std::io::{Read, Write};
 use std::path::Path;
+use tfhe::prelude::*;
+use tfhe::{generate_keys, set_server_key, ClientKey, ConfigBuilder, FheUint8, ServerKey};
 
 /// FHEstate Verification Tool (CLI)
-/// 
+///
 /// Client-side tool to generate keys, submit FHE tasks, and verify proofs.
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -47,7 +47,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 /// Command: Generate Keys
 fn run_keygen(out_dir: &str) -> Result<(), Box<dyn Error>> {
     info!("Generating fully homomorphic encryption keys...");
-    
+
     // Create dir if not exists
     std::fs::create_dir_all(out_dir)?;
 
@@ -67,7 +67,7 @@ fn run_keygen(out_dir: &str) -> Result<(), Box<dyn Error>> {
     let mut writer = std::io::BufWriter::new(file);
     bincode::serialize_into(&mut writer, &server_key)?;
     info!("Saved Server Key to: {}", server_path);
-    
+
     info!("✅ Key Generation Complete.");
     Ok(())
 }
@@ -94,14 +94,14 @@ fn run_demo(_rpc_url: &str) -> Result<(), Box<dyn Error>> {
     let mut bytes = Vec::new();
     file.read_to_end(&mut bytes)?;
     let server_key: ServerKey = bincode::deserialize(&bytes)?;
-    
+
     set_server_key(server_key);
     info!("Keys Loaded & Activated.");
 
     // 2. Encryption
     let target_sentence = "Solana Privacy Ops";
     info!("Encrypting Sentence: '{}'", target_sentence);
-    
+
     let mut ciphertexts = Vec::new();
     println!("\n--- Ciphertext Hashes ---");
     for b in target_sentence.as_bytes() {
@@ -112,17 +112,20 @@ fn run_demo(_rpc_url: &str) -> Result<(), Box<dyn Error>> {
         hasher.update(&ct_bytes);
         let hash = hasher.finalize();
         println!("'{}' -> {:x}", *b as char, hash);
-        
+
         ciphertexts.push(ct);
         std::io::stdout().flush()?;
     }
     println!("-------------------------\n");
-    info!("Encryption Complete. {} Characters secured.", ciphertexts.len());
+    info!(
+        "Encryption Complete. {} Characters secured.",
+        ciphertexts.len()
+    );
 
     // 3. Homomorphic Computation (Shift + 1)
     info!("Executing Homomorphic Shift (+1) on encrypted data...");
     let one = FheUint8::encrypt(1u8, &client_key);
-    
+
     let mut result_ciphertexts = Vec::new();
     for ct in &ciphertexts {
         let res = ct + &one;
@@ -130,13 +133,13 @@ fn run_demo(_rpc_url: &str) -> Result<(), Box<dyn Error>> {
         print!(".");
         std::io::stdout().flush()?;
     }
-    println!(""); 
+    println!();
     info!("Computation Complete.");
 
     // 4. Decryption & Verify
     info!("Decrypting Result for Verification...");
     let mut decrypted_string = String::new();
-    
+
     for ct in result_ciphertexts {
         let val: u8 = ct.decrypt(&client_key);
         decrypted_string.push(val as char);
@@ -144,13 +147,16 @@ fn run_demo(_rpc_url: &str) -> Result<(), Box<dyn Error>> {
 
     println!("   Original:  {}", target_sentence);
     println!("   Decrypted: {}", decrypted_string);
-    
-    let unshifted: String = decrypted_string.chars().map(|c| (c as u8 - 1) as char).collect();
-    
+
+    let unshifted: String = decrypted_string
+        .chars()
+        .map(|c| (c as u8 - 1) as char)
+        .collect();
+
     if unshifted == target_sentence {
-         println!("\n   STATUS: ✅ VERIFIED SUCCESS");
+        println!("\n   STATUS: ✅ VERIFIED SUCCESS");
     } else {
-         println!("\n   STATUS: ✗ FAILED");
+        println!("\n   STATUS: ✗ FAILED");
     }
 
     Ok(())
