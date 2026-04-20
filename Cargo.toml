@@ -24,14 +24,6 @@ path = "bin/fhe-cli/main.rs"
 name = "fhe_proof"
 path = "src/bin/fhe_proof.rs"
 
-[[example]]
-name = "counter_demo"
-path = "examples/counter_demo.rs"
-
-[[example]]
-name = "voting_demo"
-path = "examples/voting_demo.rs"
-
 [dependencies]
 tfhe = { version = "=0.7.3", features = ["boolean", "shortint", "integer", "x86_64"] }
 bincode = "1.3"
@@ -44,7 +36,7 @@ solana-account-decoder = "1.18.26"
 solana-transaction-status = "1.18.26"
 tokio = { version = "1.36.0", features = ["full"] }
 sha2 = "0.10"
-clap = { version = "4.4", features = ["derive"] }
+clap = { version = "4.4", features = ["derive", "env"] }
 hex = "0.4"
 base64 = "0.21"
 tracing = "0.1"
