@@ -96,22 +96,24 @@ cargo run --release --bin fhe_proof -- demo
 
 ### `fhe-cli` (Solana Submission)
 
-Tool for interacting with the Solana blockchain.
+Tool for interacting with the Solana blockchain, configuring settings, and managing client-side keypairs.
 
 #### 📡 `submit` - Post FHE Task
 
-Submits an encrypted task to the Coordinator program (SPL Memo).
+Submits an encrypted task to the Coordinator program (or SPL Memo program in demo mode).
 
 ```bash
-cargo run --bin fhe-cli -- submit [OPTIONS]
+# Basic usage using configuration defaults or environment overrides
+fhe-cli submit --op <OP_CODE> --value <VALUE>
+
+# Specifying explicit network options using global flags
+fhe-cli --rpc-url <URL> --program <ID> --wallet <PATH> submit --op <OP_CODE> --value <VALUE>
 ```
 
-**Options:**
-- `--rpc-url <URL>`: Solana RPC (Default: `https://api.devnet.solana.com`)
-- `--program <ID>`: Program ID (Default: `MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr`)
-- `--wallet <PATH>`: Keypair file (Default: `./deploy-wallet.json`)
-- `--op <NUM>`: Operation ID (Default: `1` = SUB). See op codes below.
-- `--value <NUM>`: Plaintext `u32` value to encrypt and submit
+**Global Options:**
+* `--rpc-url <URL>` — Solana RPC Endpoint (Default: reads `FHESTATE_RPC` or `.fhestate/config.json`)
+* `--program <ID>` — Coordinator Program ID (Default: reads `FHESTATE_PROGRAM_ID` or defaults to SPL Memo)
+* `--wallet <PATH>` — Path to Solana keypair JSON file (Default: reads `FHESTATE_WALLET_PATH` or defaults to `deploy-wallet.json`)
 
 **Operation codes:**
 
@@ -137,17 +139,26 @@ cargo run --bin fhe-cli -- submit [OPTIONS]
 
 ---
 
-#### 💼 `wallet` - Utilities
+#### 💼 Developer CLI Commands
 
 ```bash
-# Create new wallet
-cargo run --bin fhe-cli -- wallet create
+# 1. Create a new Solana wallet JSON keypair file
+fhe-cli wallet new --out deploy-wallet.json
 
-# Check balance
-cargo run --bin fhe-cli -- wallet balance
+# 2. Check current wallet SOL balance on-chain
+fhe-cli balance
 
-# Request Airdrop (Devnet)
-cargo run --bin fhe-cli -- wallet airdrop --amount 2
+# 3. Request a Solana devnet faucet airdrop (e.g. 1.5 SOL)
+fhe-cli airdrop 1.5
+
+# 4. Automated health checks (verifies FHE keys, RPC, wallet, and balances)
+fhe-cli doctor
+
+# 5. Review local content-addressed FHE ciphertext cache
+fhe-cli cache list
+
+# 6. Monitor transaction history and state transitions in real time
+fhe-cli watch --interval 5
 ```
 
 ---
