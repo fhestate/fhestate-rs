@@ -137,6 +137,10 @@ cargo run --release --bin fhe_proof -- demo
 ### Step 6: Submit to Solana
 Post a cryptographic proof to the blockchain.
 ```bash
+# Run the direct release binary
+./target/release/fhe-cli submit --op 0 --value 42
+
+# Or via cargo
 cargo run --release --bin fhe-cli -- submit --op 0 --value 42
 ```
 
@@ -181,7 +185,8 @@ For production or custom cryptographic requirements:
     ```
 3.  **Use Your ID**:
     ```bash
-    cargo run --bin fhe-cli -- submit --program YOUR_PROGRAM_ID --op 1
+    # Note: --program is a global flag and must be supplied before the submit subcommand
+    ./target/release/fhe-cli --program YOUR_PROGRAM_ID submit --op 1
     ```
 
 ---
