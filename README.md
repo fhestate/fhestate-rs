@@ -226,12 +226,16 @@ cargo run --release --bin fhe_proof -- demo      # Run local FHE demo
 
 ### `fhe-cli` — Command Line Interface
 
+Full guide: **[docs/CLI.md](docs/CLI.md)**
+
 ```bash
-cargo run --bin fhe-cli -- setup                          # One-time setup
-cargo run --bin fhe-cli -- init-state                     # Initialize StateContainer PDA
-cargo run --bin fhe-cli -- submit --op 0 --value 42       # Submit standard task
-cargo run --bin fhe-cli -- submit-input --op 0 --value 42 # Submit inline input
-cargo run --bin fhe-cli -- reveal --task <TASK_PUBKEY>    # Request result reveal
+cargo run --release --bin fhe-cli -- doctor          # Health check
+cargo run --release --bin fhe-cli -- demo            # Encrypt + devnet memo tx
+cargo run --release --bin fhe-cli -- status          # Keys, wallet, cache
+cargo run --release --bin fhe-cli -- setup           # One-time setup
+cargo run --release --bin fhe-cli -- submit --value 42
+cargo run --release --bin fhe-cli -- history         # Recent txs + Solscan
+cargo run --release --bin fhe-cli -- cache list
 ```
 
 **Operation codes:**
