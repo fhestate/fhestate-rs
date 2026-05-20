@@ -11,7 +11,7 @@
 
 | Milestone / Version | Focus Area | Status |
 | :--- | :--- | :--- |
-| [**v0.2.0 (Current)**](#020---2026-04-17) | Core Refinement & Stability | ✅ Released |
+| [**v0.2.0 (Current)**](#020---2026-05-26) | Phase 3: Developer SDK & CLI | ✅ Shipped (May 2026) |
 | [**v0.1.0**](#010---2026-01-29) | Initial Public Release | ✅ Released |
 | [**Milestone 1**](#milestone-1-research--evaluation-november-2025) | Research & Cryptography | ✅ Completed |
 | [**Milestone 2**](#milestone-2-architecture--core-implementation-december-2025) | Core Engine Implementation | ✅ Completed |
@@ -21,20 +21,30 @@
 
 ---
 
-## [0.2.0] - 2026-04-17
+## [0.2.0] - 2026-05-18
 
-**Core Library Hardening & Tooling Refinement** — Preparation for standalone SDK extraction.
-
-### Changed
-* **Logging System:** Migrated from legacy `log`/`env_logger` to the modern `tracing` ecosystem for structured production logging.
-* **Architecture:** Safely removed the legacy experimental `sdk/` directory to enforce clean separation. The TypeScript SDK will now reside in a dedicated repository `fhestate-sdk`.
-* **Error Handling:** Refactored `errors.rs` to group domain-specific errors (`KeyManagement`, `FheComputation`, `RpcError`).
-* **Code Quality:** Comprehensive `rustfmt` and `clippy` passes applied, eliminating unused imports, type complexity warnings, and manual loop constraints.
+**Phase 3 Completion: Developer SDK & CLI Tooling Release**
 
 ### Added
-* **Developer Demos:** Added highly requested offline executable demos in `examples/`:
-  * `counter_demo.rs`: Simulates full Coordinator-style encrypted state progression.
-  * `voting_demo.rs`: Simulates on-chain homomorphic ballot tallying for the Dark DAO.
+* **Modular CLI Subsystems:** Refactored the core `fhe-cli` code into dedicated clean helper modules (`config.rs`, `crypto_util.rs`, `output.rs`, `rpc_util.rs`, `wallet.rs`) for easier extensibility and high maintainability.
+* **17 CLI Developer Commands:** Expanded the CLI from a simple 5-command prototype into a robust developer workspace:
+  * `Demo` — Oone-sht key generation, local encryption, and memo transaction submit.
+  * `Doctor` — Automated diagnostic testing for FHE keys, wallet configs, SOL balances, and RPC server latency.
+  * `Status` — Compact summary of generated keys, active network mode, and cached ciphertexts.
+  * `ConfigInit` — Secure generation of the default local configuration file.
+  * `SubmitFile` — Submits any pre-encrypted `.bin` payload resolved from local cache.
+  * `Encrypt` — Offline client-side encryption of u32 data and local content-addressable caching.
+  * `Keygen` — Secure standalone lattice-based FHE key pair generation.
+  * `Wallet` — Native Solana keypair generator.
+  * `Balance` — Real-time wallet SOL balance check.
+  * `Airdrop` — Direct command wrapper to request Devnet lamports.
+  * `History` — Displays recent session transaction signatures and direct Solscan verification links.
+  * `Cache` — List and inspect local content-addressed FHE ciphertexts.
+  * `Watch` — Real-time on-chain transaction polling for the active wallet.
+  * `Flow` — Initiates standard StateContainer PDA initialization and state update sequences.
+* **Flexible Environment & Configuration overrides:** Standardized global options to load dynamically from `.fhestate/config.json` with native support for environment overrides (`FHESTATE_RPC`, `FHESTATE_PROGRAM_ID`, `FHESTATE_WALLET_PATH`).
+* **CLI Reference Documentation:** Added a dedicated [docs/CLI.md](docs/CLI.md) reference detailing all subcommands and operation codes.
+* **Developer Demos:** Added highly requested offline executable demos in `examples/` (`counter_demo.rs` and `voting_demo.rs` simulation scripts).
 * **Versioning & Constants:** Added `PROTOCOL_VERSION` (v1) and `CRATE_VERSION` directly to `constants.rs` to maintain robust blockchain compatibility checks.
 * **On-Chain Error Codegen:** Integrated specific numeric on-chain anchor errors (6000-6003 series for both Coordinator and Dark DAO) back into the core library for unified error decoding.
 
