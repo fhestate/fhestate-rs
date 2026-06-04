@@ -153,6 +153,21 @@ Using homomorphic comparison gates (`MAX` / `EQ`), the aggregator determines the
 
 ---
 
+## 🔒 Shielded Vault: Private Asset Pools
+
+FHESTATE implements a **Shielded Vault program** (`programs/shielded_vault`) that enables users to deposit, transfer, and withdraw assets completely confidentially using Fully Homomorphic Encryption.
+
+### 🛡️ Core Program Primitives
+*   **VaultRegistry**: A global config account tracking the authorized off-chain worker and `total_liquidity` of shielded funds in the pool.
+*   **EncryptedAccount PDA**: An individual user account mapped deterministically via seeds `[b"enc_account", owner_pubkey]`. Instead of storing plaintext balances, it stores `balance_hash` (the SHA256 commitment of their encrypted `FheUint32` balance ciphertext).
+
+### 🔄 Shielding & Unshielding Workflows
+1.  **Shielding (Deposit)**: The user transfers SOL into the vault using the `shield_funds` instruction. The program locks the SOL and emits a `ShieldEvent(user, amount)`. The off-chain FHE executor node listens to this event, adds the deposited amount homomorphically to the user's encrypted balance, and updates the user's `balance_hash` on-chain.
+2.  **Confidential Transfers**: To send funds privately, the authorized FHE executor processes the blinded math off-chain using the public `ServerKey` and updates `sender_account.balance_hash` and `receiver_account.balance_hash` on-chain via `execute_transfer_fhe`.
+3.  **Unshielding (Withdrawal)**: Because the balance is encrypted, withdrawal requests (`unshield_funds`) are routed through the FHE executor. The executor decrypts the user's balance locally (via their `ClientKey` or an authorized decryption protocol) to verify there are sufficient funds before submitting the withdrawal transaction on-chain.
+
+---
+
 ## Cryptographic Design
 
 ### 🔑 Key Management
