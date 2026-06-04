@@ -139,26 +139,69 @@ fhe-cli --rpc-url <URL> --program <ID> --wallet <PATH> submit --op <OP_CODE> --v
 
 ---
 
-#### 💼 Developer CLI Commands
 
+#### ⚙️ `doctor` - Diagnostics
+Checks local FHE keys, network connections, wallet setup, and SOL balance.
 ```bash
-# 1. Create a new Solana wallet JSON keypair file
-fhe-cli wallet new --out deploy-wallet.json
+cargo run --release --bin fhe-cli -- doctor
+```
 
-# 2. Check current wallet SOL balance on-chain
-fhe-cli balance
+#### 📊 `status` - Keys & Cache Summary
+Displays current keys, wallet address, execution mode, and local cache overview.
+```bash
+cargo run --release --bin fhe-cli -- status
+```
 
-# 3. Request a Solana devnet faucet airdrop (e.g. 1.5 SOL)
-fhe-cli airdrop 1.5
+#### 🛡️ `keygen` - FHE Keys Generation
+Generates FHE keys in the keys directory (does not overwrite unless `--force` is used).
+```bash
+cargo run --release --bin fhe-cli -- keygen [--force]
+```
 
-# 4. Automated health checks (verifies FHE keys, RPC, wallet, and balances)
-fhe-cli doctor
+#### 💼 `wallet new` - Create Wallet
+Generates a new Solana keypair JSON file.
+```bash
+cargo run --release --bin fhe-cli -- wallet new [--out <PATH>]
+```
 
-# 5. Review local content-addressed FHE ciphertext cache
-fhe-cli cache list
+#### 💰 `balance` - Check SOL
+Displays the current SOL balance of the configured wallet.
+```bash
+cargo run --release --bin fhe-cli -- balance
+```
 
-# 6. Monitor transaction history and state transitions in real time
-fhe-cli watch --interval 5
+#### 🪂 `airdrop` - Request SOL
+Requests devnet SOL (defaults to `1.0` SOL).
+```bash
+cargo run --release --bin fhe-cli -- airdrop [SOL_AMOUNT]
+```
+
+#### 📜 `history` - Transaction Logs
+Shows recent transaction signatures and provides Devnet Solscan explorer links.
+```bash
+cargo run --release --bin fhe-cli -- history [--limit <NUM>]
+```
+
+#### 🗄️ `cache` - Cache Manager
+Lists or displays local ciphertext caches.
+```bash
+# List cached URIs
+cargo run --release --bin fhe-cli -- cache list
+
+# Show detail of a cached ciphertext
+cargo run --release --bin fhe-cli -- cache show <HASH_OR_URI>
+```
+
+#### 🕵️ `watch` - Monitor Wallet Activity
+Polls the wallet for new transactions and outputs Solscan links for new activity.
+```bash
+cargo run --release --bin fhe-cli -- watch [--interval <SECS>] [--limit <NUM>]
+```
+
+#### 🔄 `flow counter` - Automated Flow
+Initializes a user StateContainer PDA and submits a task sequentially.
+```bash
+cargo run --release --bin fhe-cli -- flow counter [--value <NUM>]
 ```
 
 ---
@@ -366,25 +409,6 @@ All SDK functions return `FheResult<T>` which is `Result<T, FheError>`. Error va
 | `TransactionFailed(msg)` | Solana transaction rejected |
 | `TaskTimeout(secs)` | Task exceeded `TASK_TIMEOUT_SECS` (600s) |
 
-#### `submit_task`
-Submit an FHE task to the Solana blockchain.
-
-```rust
-pub fn submit_task(
-    rpc_url: &str,
-    program_id: &str,
-    wallet_path: &str,
-    op: u8
-) -> Result<(), Box<dyn Error>>
-```
-
-#### `generate_proof`
-Generate SHA256 hash proof for any ciphertext.
-
-```rust
-pub fn generate_proof(ciphertext: &FheUint8) -> Result<[u8; 32], Error>
-```
-
 ---
 
 ## Constants Reference
@@ -445,11 +469,10 @@ When verifying an FHE task on-chain:
 Common errors encountered during FHE operations.
 
 | Code | Error Name | Description | Solution |
-|------|------------|-------------|----------|
-| **100** | `KeyNotFound` | Client/Server key missing | Run `fhe_proof -- keygen` |
+| **100** | `KeyNotFound` | Client/Server key missing | Run `fhe-cli keygen` or `fhe_proof -- keygen` |
 | **101** | `DecryptionFailed` | Wrong key used for decryption | Ensure `client_key.bin` matches data |
 | **200** | `RpcError` | Solana network unreachable | Check internet or change RPC URL |
-| **201** | `InsufficientFunds` | Wallet has < 0.001 SOL | Run `wallet airdrop` |
+| **201** | `InsufficientFunds` | Wallet has < 0.01 SOL for gas | Run `fhe-cli airdrop` |
 | **202** | `ProgramError` | On-chain instruction failed | Check Program ID and Operation Code |
 
 ---
