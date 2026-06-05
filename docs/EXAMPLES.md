@@ -358,7 +358,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 **Context**: Implement a voting system where individual choices are encrypted. The "Tally" is computed homomorphically, so the final result is revealed while individual votes remain secret forever.
 
 ```rust
-use tfhe::{FheUint8, ClientKey, ServerKey, set_server_key, ConfigBuilder, generate_keys};
+use tfhe::{FheUint32, ClientKey, ServerKey, set_server_key, ConfigBuilder, generate_keys};
+use fhestate_rs::{FheMath, voting::VotingTally};
 
 struct VotingSystem {
     client_key: ClientKey,
@@ -402,7 +403,8 @@ fn main() {
 **Context**: Find the highest bid without revealing any bidding history. This uses homomorphic comparisons to determine the winner blindly.
 
 ```rust
-use tfhe::{FheUint8, ClientKey, set_server_key, ConfigBuilder, generate_keys};
+use tfhe::{FheUint32, ClientKey, ServerKey, set_server_key, ConfigBuilder, generate_keys};
+use fhestate_rs::{FheMath, voting::VotingTally};
 
 struct Auction {
     client_key: ClientKey,
