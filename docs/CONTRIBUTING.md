@@ -332,6 +332,8 @@ For clarity, use the following naming conventions in code and documentation:
 - **fhe-node**: The background compute service binary.
 - **fhe-cli**: The command-line interface for Solana interaction binary.
 - **coordinator**: The Anchor-based Solana program in `programs/coordinator/`.
+- **dark_dao**: The Anchor-based Solana voting program in `programs/dark_dao/`.
+- **shielded_vault**: The Anchor-based Solana private asset vault program in `programs/shielded_vault/`.
 
 ### Low Priority
 
