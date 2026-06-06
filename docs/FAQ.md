@@ -103,8 +103,8 @@ Solana is a public ledger—everyone knows *which wallet* requested a computatio
 ### Q14. Error Code Quick-Fix
 | Code | Error | Solution |
 | :--- | :--- | :--- |
-| **100** | `KeyNotFound` | Run `fhe_proof -- keygen` |
-| **201** | `LowBalance` | Airdrop SOL to your `deploy-wallet.json` |
+| **100** | `KeyNotFound` | Run `fhe-cli keygen` or `fhe-cli setup` |
+| **201** | `LowBalance` | Run `fhe-cli airdrop` or fund the wallet |
 | **500** | `NoiseOverflow` | Reset your ciphertext or perform bootstrapping. |
 
 ---
