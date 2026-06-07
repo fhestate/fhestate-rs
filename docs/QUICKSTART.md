@@ -104,6 +104,9 @@ cargo run --release --bin fhe_proof -- keygen --out-dir fhe_keys
 
 ---
 
+### Step 5: Run the Verification Demo
+
+```bash
 # Run the verification suite (keygen + benchmark)
 cargo run --release --bin fhe_proof -- demo
 ```
