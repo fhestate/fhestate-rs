@@ -2,7 +2,7 @@
 
 **The chronological evolution of confidential computing on Solana.**
 
-[![Version](https://img.shields.io/badge/Version-v0.2.0-8A2BE2?style=for-the-badge&logo=rocket&logoColor=white)](https://github.com/fhestate/fhestate-rs/releases)
+[![Version](https://img.shields.io/badge/Version-v0.3.0-8A2BE2?style=for-the-badge&logo=rocket&logoColor=white)](https://github.com/fhestate/fhestate-rs/releases)
 [![Status](https://img.shields.io/badge/Status-Public_Alpha-orange?style=for-the-badge&logo=shield)](FAQ.md#q3-is-this-production-ready)
 
 ---
@@ -11,13 +11,29 @@
 
 | Milestone / Version | Focus Area | Status |
 | :--- | :--- | :--- |
-| [**v0.2.0 (Current)**](#020---2026-05-26) | Phase 3: Developer SDK & CLI | ✅ Shipped (May 2026) |
+| [**v0.2.0 (Current)**](#020---2026-04-17) | Core Refinement & Stability | ✅ Released |
 | [**v0.1.0**](#010---2026-01-29) | Initial Public Release | ✅ Released |
 | [**Milestone 1**](#milestone-1-research--evaluation-november-2025) | Research & Cryptography | ✅ Completed |
 | [**Milestone 2**](#milestone-2-architecture--core-implementation-december-2025) | Core Engine Implementation | ✅ Completed |
 | [**Milestone 3**](#milestone-3-integration--tooling-january-2026) | CLI, Node & Devnet Testing | ✅ Completed |
 | [**Milestone 4**](#milestone-4-documentation--polish-late-january-2026) | Documentation & Branding | ✅ Completed |
 | **Roadmap** | **What's coming next** | 🚀 [**View Full Roadmap →**](https://www.fhestate.org/roadmap) |
+
+---
+
+## [0.3.0] - 2026-06-08
+
+**Shielded Vault Program & Modular CLI Refactoring** — Production readiness updates for decentralized confidential assets and key management flows.
+
+### Added
+* **Shielded Vault Program:** Added Anchor-based `programs/shielded_vault` implementing private balance pools with FHE transfers, SOL shielding, and FHE worker-authorized unshielding.
+* **CLI Documentation:** Created `docs/CLI.md` mapping out setup and diagnostics tools.
+* **CLI Features:** Added `doctor` (health checks), `status` (keys/cache overview), `balance`, `airdrop`, `keygen`, `history` (devnet transaction tracking), `watch` (wallet transaction polling), and automated `flow counter` commands.
+
+### Changed
+* **CLI Codebase:** Refactored a monolithic CLI structure into dedicated configuration (`config.rs`), cryptographic helpers (`crypto_util.rs`), RPC handlers (`rpc_util.rs`), output formatters (`output.rs`), and wallet utilities (`wallet.rs`).
+* **Configuration:** Shifted CLI defaults to load from `.fhestate/config.json` and support FHESTATE_* environment overrides.
+* **Cargo Configuration:** Cleaned up unused demo examples in `Cargo.toml`.
 
 ---
 
