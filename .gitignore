@@ -4,10 +4,14 @@
 *.pdb
 
 # Ignore Cargo.lock for libraries (keep it for binaries)
-# Cargo.lock
+Cargo.lock
+Cargo.lock.bak
 
 # Ignore generated keys (sensitive!)
 /fhe_keys/
+.fhestate_registry
+
+
 *.bin
 
 # Ignore wallet files (NEVER commit private keys!)
