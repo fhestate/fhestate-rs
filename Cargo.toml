@@ -24,6 +24,18 @@ path = "bin/fhe-cli/main.rs"
 name = "fhe_proof"
 path = "src/bin/fhe_proof.rs"
 
+[[bin]]
+name = "devnet_vault_flow"
+path = "src/bin/devnet_vault_flow.rs"
+
+[[bin]]
+name = "devnet_vault_flow_tee"
+path = "src/bin/devnet_vault_flow_tee.rs"
+
+[[bin]]
+name = "close_registry"
+path = "src/bin/close_registry.rs"
+
 [dependencies]
 tfhe = { version = "=0.7.3", features = ["boolean", "shortint", "integer", "x86_64"] }
 bincode = "1.3"
@@ -44,11 +56,17 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 # log kept for transitive compatibility
 log = "0.4"
 env_logger = "0.10"
+ed25519-dalek = "1.0.1"
 
 [workspace]
 members = [
     ".",
     "bin/fhe-cli",
+]
+exclude = [
+    "programs/shielded_vault",
+    "programs/coordinator",
+    "programs/dark_dao",
 ]
 
 [workspace.dependencies]
