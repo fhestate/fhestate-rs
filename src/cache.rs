@@ -123,32 +123,33 @@ impl LocalCache {
 mod tests {
     use super::*;
 
-    fn tmp() -> LocalCache {
-        LocalCache::new(&format!(".fhe_test_cache_{}", std::process::id()))
+    fn tmp(suffix: &str) -> LocalCache {
+        LocalCache::new(&format!(".fhe_test_cache_{}_{}", std::process::id(), suffix))
     }
 
     #[test]
     fn test_store_load_roundtrip() {
-        let c = tmp();
+        let c = tmp("roundtrip");
         let data = b"fhestate ciphertext roundtrip";
         let uri = c.store(data).unwrap();
         assert!(uri.starts_with("local://"));
         assert_eq!(c.load(&uri).unwrap(), data);
-        let _ = c.clear();
+        let _ = fs::remove_dir_all(&c.dir);
     }
 
     #[test]
     fn test_cache_miss_returns_err() {
-        let c = tmp();
+        let c = tmp("miss");
         assert!(c.load("local://nonexistent_hash_xyz").is_err());
+        let _ = fs::remove_dir_all(&c.dir);
     }
 
     #[test]
     fn test_uri_uses_full_32_byte_hash() {
-        let c = tmp();
+        let c = tmp("hash");
         let uri = c.store(b"test").unwrap();
         // "local://" = 8 chars, SHA256 hex = 64 chars → total 72
         assert_eq!(uri.len(), 72, "URI must encode full 32-byte SHA256 hash");
-        let _ = c.clear();
+        let _ = fs::remove_dir_all(&c.dir);
     }
 }
