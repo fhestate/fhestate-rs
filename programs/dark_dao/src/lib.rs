@@ -1,6 +1,6 @@
 use anchor_lang::prelude::*;
 
-declare_id!("DarkDAo1111111111111111111111111111111111111");
+declare_id!("Ay5Z1HQrsfnYNhRt48Mujr7k1b91bV7ir4jATYocVp5s");
 
 #[program]
 pub mod dark_dao {
@@ -161,7 +161,7 @@ pub struct AuthorizeWorker<'info> {
         init,
         payer = authority,
         space = 8 + AuthorizedWorker::INIT_SPACE,
-        seeds = [b"worker", worker_key.as_ref()],
+        seeds = [b"worker", worker_key.key().as_ref()],
         bump
     )]
     pub worker_record: Account<'info, AuthorizedWorker>,
