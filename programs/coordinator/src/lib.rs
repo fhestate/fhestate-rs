@@ -1,6 +1,6 @@
 use anchor_lang::prelude::*;
 
-declare_id!("FHECord1111111111111111111111111111111111111");
+declare_id!("57YPM8JYv8t6wArmZTD14PNo6ES9CYKGRYcZWC4FZEnq");
 
 #[program]
 pub mod coordinator {
@@ -17,7 +17,6 @@ pub mod coordinator {
 
     pub fn register_executor(ctx: Context<RegisterExecutor>, stake_amount: u64) -> Result<()> {
         let registry = &mut ctx.accounts.registry;
-        let executor = &mut ctx.accounts.executor;
         
         require!(stake_amount >= registry.min_stake, CoordinatorError::InsufficientStake);
         
@@ -31,6 +30,7 @@ pub mod coordinator {
         );
         anchor_lang::system_program::transfer(cpi_context, stake_amount)?;
 
+        let executor = &mut ctx.accounts.executor;
         executor.owner = ctx.accounts.owner.key();
         executor.stake = stake_amount;
         executor.active = true;
@@ -246,7 +246,13 @@ pub struct Initialize<'info> {
 pub struct RegisterExecutor<'info> {
     #[account(mut)]
     pub registry: Account<'info, Registry>,
-    #[account(init, payer = owner, space = 8 + Executor::INIT_SPACE)]
+    #[account(
+        init,
+        payer = owner,
+        space = 8 + Executor::INIT_SPACE,
+        seeds = [b"executor", owner.key().as_ref()],
+        bump
+    )]
     pub executor: Account<'info, Executor>,
     #[account(mut)]
     pub owner: Signer<'info>,
@@ -284,6 +290,8 @@ pub struct UpdateState<'info> {
     pub task: Account<'info, Task>,
     #[account(
         mut,
+        seeds = [b"executor", owner.key().as_ref()],
+        bump,
         has_one = owner @ CoordinatorError::ExecutorUnauthorized
     )]
     pub executor: Account<'info, Executor>,
@@ -300,7 +308,7 @@ pub struct UpdateState<'info> {
 pub struct UpdateStatePda<'info> {
     #[account(
         mut,
-        seeds = [b"state", owner_key.as_ref()],
+        seeds = [b"state", owner_key.key().as_ref()],
         bump,
     )]
     pub state_container: Account<'info, StateContainer>,
@@ -309,6 +317,8 @@ pub struct UpdateStatePda<'info> {
     pub owner_key: UncheckedAccount<'info>,
     #[account(
         mut,
+        seeds = [b"executor", owner.key().as_ref()],
+        bump,
         has_one = owner @ CoordinatorError::ExecutorUnauthorized
     )]
     pub executor: Account<'info, Executor>,
@@ -319,6 +329,13 @@ pub struct UpdateStatePda<'info> {
 pub struct ChallengeTask<'info> {
     #[account(mut)]
     pub task: Account<'info, Task>,
+    #[account(
+        mut,
+        seeds = [b"executor", task.executor.as_ref()],
+        bump,
+    )]
+    pub executor: Account<'info, Executor>,
+    #[account(mut)]
     pub challenger: Signer<'info>,
 }
 
