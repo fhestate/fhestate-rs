@@ -428,51 +428,262 @@ Defined in `src/constants.rs`. Import with `use fhestate_rs::constants::*;`
 
 ---
 
-FHESTATE interacts with Solana using standard JSON-RPC.
+## 🔗 On-Chain Smart Contracts & Program IDs
 
-### `getTransaction` Response (Full)
+The FHESTATE-rs ecosystem consists of three main Anchor programs on Solana Devnet:
 
-When verifying an FHE task on-chain:
+### 1. Shielded Vault Program
+*   **Program ID**: `D14VbLLPcqkkZ6p4M9UDs4xfNdtB1tQDUqi7ZTt89etC`
+*   **Purpose**: Confidential SOL deposits, blinded transfers, and TEE remote-attestation-authorized withdrawals.
 
-```json
-{
-  "jsonrpc": "2.0",
-  "result": {
-    "slot": 274381920,
-    "transaction": {
-      "signatures": [
-        "4w9MESyqbMTkvNZAVn1uLBz1tD8onSuwEqh4yjaxrZLaUvKM7Wf63etQcjvC6XMuRso7auGpH6chFQC6YGyAJ41f"
-      ],
-      "message": {
-        "accountKeys": [
-            "69ZLYxGHckZDCBaDfzp5qh444wQXdETGTKPoetVAdBkW",
-            "MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr"
-        ],
-        "instructions": [
-          {
-            "programIdIndex": 1,
-            "accounts": [],
-            "data": "RkhFX1RBU0tfU1VCTUlTU0lPTjogT1A9MQ==", 
-            "//comment": "Base64 for 'FHE_TASK_SUBMISSION: OP=1'"
-          }
-        ]
-      }
-    }
-  }
+#### Instructions
+
+| Instruction | Accounts | Parameters | Description |
+|:---|:---|:---|:---|
+| `initialize_vault` | `[registry, authority, system_program]` | `attestation_authority: Pubkey` | Creates global vault registry config |
+| `initialize_account`| `[encrypted_account, owner, system_program]` | None | Creates individual user encrypted balance PDA |
+| `shield_funds` | `[user, vault, registry, system_program]` | `amount: u64` | Deposits SOL into vault and emits `ShieldEvent` |
+| `register_enclave` | `[authority, registry, enclave_account, instructions, system_program]` | `enclave_key: Pubkey` | Attests SGX enclave via precompile sig check |
+| `toggle_enclave` | `[authority, registry, enclave_account]` | `is_active: bool` | Enables/disables an enclave |
+| `execute_transfer_fhe`| `[authority, registry, sender_account, receiver_account]` | `new_sender_hash: [u8;32]`, `new_receiver_hash: [u8;32]` | Admin-authorized private transfer |
+| `execute_transfer_fhe_tee`| `[enclave_signer, enclave_account, sender_account, receiver_account]` | `new_sender_hash: [u8;32]`, `new_receiver_hash: [u8;32]` | TEE-authorized private transfer |
+| `unshield_funds` | `[authority, registry, vault, user, system_program]` | `amount: u64`, `vault_bump: u8` | Admin-authorized withdrawal |
+| `unshield_funds_tee` | `[enclave_signer, enclave_account, registry, vault, user, system_program]` | `amount: u64`, `vault_bump: u8` | TEE-authorized withdrawal |
+| `close_registry` | `[admin, registry]` | None | Closes/reclaims registry PDA rent lamports |
+
+#### State Schemas
+
+```rust
+pub struct VaultRegistry {
+    pub admin: Pubkey,
+    pub attestation_authority: Pubkey,
+    pub total_liquidity: u64,
+    pub approved_mrenclave: [u8; 32],
+}
+
+pub struct EncryptedAccount {
+    pub owner: Pubkey,
+    pub balance_hash: [u8; 32],
+}
+
+pub struct EnclaveAccount {
+    pub enclave_key: Pubkey,
+    pub is_active: bool,
 }
 ```
 
 ---
 
-## Error Codes
+### 2. Coordinator Program
+*   **Program ID**: `57YPM8JYv8t6wArmZTD14PNo6ES9CYKGRYcZWC4FZEnq`
+*   **Purpose**: Off-chain FHE execution task queuing, state-hash chaining, and staked executor registration.
 
-Common errors encountered during FHE operations.
+#### Instructions
 
-| Code | Error Name | Description | Solution |
-| **100** | `KeyNotFound` | Client/Server key missing | Run `fhe-cli keygen` or `fhe_proof -- keygen` |
-| **101** | `DecryptionFailed` | Wrong key used for decryption | Ensure `client_key.bin` matches data |
-| **200** | `RpcError` | Solana network unreachable | Check internet or change RPC URL |
-| **201** | `InsufficientFunds` | Wallet has < 0.01 SOL for gas | Run `fhe-cli airdrop` |
-| **202** | `ProgramError` | On-chain instruction failed | Check Program ID and Operation Code |
+| Instruction | Accounts | Parameters | Description |
+|:---|:---|:---|:---|
+| `initialize` | `[registry, authority, system_program]` | `min_stake: u64` | Spawns executor registry coordinator |
+| `register_executor`| `[registry, executor, owner, system_program]` | `stake_amount: u64` | Registers executor with locked SOL stake |
+| `submit_task` | `[registry, task, submitter, system_program]` | `id: u64`, `input_hash: [u8;32]`, `input_uri: String`, `op: u8`, `target_owner: Option<Pubkey>` | Enqueues standard FHE compute task |
+| `initialize_state` | `[state_container, submitter, system_program]` | None | Initializes a new `StateContainer` PDA |
+| `submit_input` | `[state_container, submitter]` | `encrypted_data: Vec<u8>`, `operation: u8` | Submits inline ciphertext data |
+| `update_state` | `[task, executor, state_container, owner]` | `previous_state_hash: [u8;32]`, `result_hash: [u8;32]`, `result_uri: String` | Settles FHE task and updates user's StateContainer hash |
+| `update_state_pda` | `[state_container, owner_key, executor, owner]` | `previous_state_hash: [u8;32]`, `result_hash: [u8;32]`, `result_uri: String` | Directly updates state PDA (inline flow) |
+| `request_reveal` | `[task, submitter]` | None | Requests plaintext reveal for completed FHE task |
+| `provide_reveal` | `[task, executor]` | `reveal_data: String` | Submits plaintext result (reveal phase) |
+| `challenge_task` | `[task, executor, challenger]` | None | Slashes executor stake for invalid computation |
+
+#### State Schemas
+
+```rust
+pub struct Registry {
+    pub authority: Pubkey,
+    pub min_stake: u64,
+    pub task_count: u64,
+    pub executor_count: u64,
+}
+
+pub struct Executor {
+    pub owner: Pubkey,
+    pub stake: u64,
+    pub active: bool,
+    pub tasks_completed: u64,
+}
+
+pub struct Task {
+    pub id: u64,
+    pub submitter: Pubkey,
+    pub target_owner: Pubkey,
+    pub input_hash: [u8; 32],
+    pub input_uri: String,
+    pub operation: u8,
+    pub status: TaskStatus,
+    pub result_hash: [u8; 32],
+    pub result_uri: String,
+    pub reveal_result: String,
+    pub executor: Pubkey,
+}
+
+pub struct StateContainer {
+    pub owner: Pubkey,
+    pub state_hash: [u8; 32],
+    pub state_uri: String,
+    pub version: u64,
+}
+```
+
+---
+
+### 3. Dark DAO Program
+*   **Program ID**: `Ay5Z1HQrsfnYNhRt48Mujr7k1b91bV7ir4jATYocVp5s`
+*   **Purpose**: Confidential governance, encrypted voting, and homomorphic ballot aggregation.
+
+#### Instructions
+
+| Instruction | Accounts | Parameters | Description |
+|:---|:---|:---|:---|
+| `initialize` | `[config, authority, system_program]` | None | Initializes DAO configuration |
+| `authorize_worker` | `[config, worker_record, worker_key, authority, system_program]` | `worker_key: Pubkey` | Configures authorized FHE workers |
+| `create_proposal` | `[proposal, tally, creator, system_program]` | `description: String`, `voting_period: i64` | Creates proposal and matching tally PDA |
+| `cast_encrypted_vote`| `[proposal, vote_record, voter, system_program]` | `encrypted_vote: Vec<u8>` | Emits `VoteCast` containing encrypted ballot |
+| `update_tally` | `[proposal, tally, worker_record, worker]` | `new_state_hash: [u8;32]`, `new_state_uri: String` | Aggregates votes homomorphically on-chain |
+| `finalize_tally` | `[proposal, tally, creator]` | `result_hash: [u8;32]`, `result_uri: String` | Finalizes tally outcome decryption |
+
+#### State Schemas
+
+```rust
+pub struct DaoConfig {
+    pub authority: Pubkey,
+}
+
+pub struct AuthorizedWorker {
+    pub pubkey: Pubkey,
+    pub is_active: bool,
+}
+
+pub struct Proposal {
+    pub creator: Pubkey,
+    pub description: String,
+    pub start_time: i64,
+    pub end_time: i64,
+    pub status: ProposalStatus,
+    pub total_votes: u64,
+}
+
+pub struct EncryptedTally {
+    pub proposal: Pubkey,
+    pub state_hash: [u8; 32],
+    pub state_uri: String,
+    pub version: u64,
+}
+
+pub struct VoteRecord {
+    pub voter: Pubkey,
+    pub proposal: Pubkey,
+    pub timestamp: i64,
+}
+```
+
+---
+
+## 🛠️ TypeScript / Web3.js Bindings Integration
+
+Clients submit TEE remote-attestation enclaves by appending a preceding Ed25519 precompile instruction to verify the 64-byte payload `[enclave_key (32) | mrenclave (32)]`:
+
+```typescript
+import { 
+  Ed25519Program, 
+  Transaction, 
+  PublicKey, 
+  SystemProgram 
+} from '@solana/web3.js';
+import * as nacl from 'tweetnacl';
+
+async function registerEnclave(
+  program: any, 
+  authority: Keypair, 
+  enclaveKey: PublicKey, 
+  attestationAuthority: Keypair, 
+  mrenclave: Uint8Array
+) {
+  // 1. Build 64-byte attestation payload
+  const message = Buffer.concat([enclaveKey.toBuffer(), mrenclave]);
+  
+  // Sign attestation payload using Attestation Authority private key
+  const signature = nacl.sign.detached(message, attestationAuthority.secretKey);
+
+  // 2. Build the Ed25519 Precompile Instruction
+  const ed25519Instruction = Ed25519Program.createInstructionWithPublicKey({
+    publicKey: attestationAuthority.publicKey.toBuffer(),
+    message: message,
+    signature: signature,
+  });
+
+  // 3. Build register_enclave Instruction
+  const registerIx = await program.methods
+    .registerEnclave(enclaveKey)
+    .accounts({
+      authority: authority.publicKey,
+      registry: vaultRegistryPda,
+      enclaveAccount: enclavePda,
+      instructions: anchor.web3.SYSVAR_INSTRUCTIONS_PUBKEY,
+      systemProgram: SystemProgram.programId,
+    })
+    .instruction();
+
+  // 4. Submit both atomically
+  const transaction = new Transaction().add(ed25519Instruction, registerIx);
+  await anchor.Provider.env().sendAndConfirm(transaction, [authority]);
+}
+```
+
+---
+
+## 📜 Error Codes & Diagnostics
+
+Below are the error tables returned by the on-chain programs:
+
+### Shielded Vault Errors (`shielded_vault`)
+
+| Code | Name | Description |
+|:---|:---|:---|
+| `6000` | `Unauthorized` | Action restricted to admin authority |
+| `6001` | `UnauthorizedEnclave` | Signer is not an active TEE enclave |
+| `6002` | `InvalidEd25519Instruction` | Missing or invalid preceding Ed25519 precompile |
+| `6003` | `InvalidAttestationMessage` | Precompile signed message length is not exactly 64 bytes |
+| `6004` | `EnclaveKeyMismatch` | Precompile target enclave key does not match transaction input |
+| `6005` | `InvalidMrenclave` | Signed code measurement `MRENCLAVE` hash is not approved |
+
+### Coordinator Errors (`coordinator`)
+
+| Code | Name | Description |
+|:---|:---|:---|
+| `6000` | `InsufficientStake` | Staked executor SOL is below `min_stake` threshold |
+| `6001` | `TaskNotPending` | Operation attempted on non-pending task |
+| `6002` | `TaskNotCompleted` | Operation requires a completed task |
+| `6003` | `ExecutorInactive` | Executor account is disabled or inactive |
+| `6005` | `InvalidStateUri` | URI scheme is not `local://` or `ipfs://` |
+| `6006` | `ExecutorUnauthorized` | Signer is not the owner of the executor PDA |
+| `6008` | `StateHashMismatch` | Stale state hash; another node updated the state container |
+
+### Dark DAO Errors (`dark_dao`)
+
+| Code | Name | Description |
+|:---|:---|:---|
+| `6000` | `ProposalNotActive` | Action attempted on inactive proposal |
+| `6001` | `VotingEnded` | Proposal voting period has expired |
+| `6002` | `VotingStillActive` | Finalization attempted before voting ended |
+| `6003` | `InvalidStatus` | Proposal status is not valid for transaction |
+| `6004` | `UnauthorizedWorker` | Worker is not registered or active |
+
+### Off-Chain SDK Errors
+
+| Code | Name | Description |
+|:---|:---|:---|
+| `100` | `KeyNotFound` | Client or server FHE binary key file is missing on disk |
+| `101` | `DecryptionFailed` | Decryption failed (caused by mismatched `client_key.bin` keys) |
+| `200` | `RpcError` | Solana RPC endpoint unreachable |
+| `201` | `InsufficientFunds` | Submitter wallet has less than `0.01` SOL to cover gas fees |
+| `202` | `ProgramError` | On-chain instruction failed |
 
 ---
