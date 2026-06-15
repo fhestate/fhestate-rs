@@ -90,6 +90,7 @@ The mathematical core that allows computation on encrypted data. TFHE (Torus Ful
 *   **Operations**: Arithmetic (`+`, `-`, `*`), Bitwise (`AND`, `OR`, `XOR`), Comparison (`EQ`, `GT`, `LT`, `MAX`, `MIN`), and Optimized Tallying.
 *   **Tree-Sum Optimization**: The `FheMath::tree_sum` logic enables $O(\log n)$ noise growth for large aggregations, critical for confidential governance scaling.
 *   **Server Key Activation**: The `ServerKey` must be set globally on the thread before any homomorphic operation via `set_server_key()` (or `activate_server_key()` in the SDK). This is a TFHE-rs requirement — the key is stored in thread-local storage.
+*   **Core Cache Optimization**: Implements a strict LRU (Least Recently Used) eviction policy for ciphertext buffers and refined heap allocations, avoiding memory bloat during high-throughput execution cycles.
 
 ### 2. `fhe-cli` (Client)
 
@@ -125,11 +126,12 @@ The decentralized worker that processes FHE tasks and aggregates multi-party res
 
 ---
 
-## Staking & Governance
+## Staking & Coordinator Mechanics
 
-FHEstate uses a **Staked-Executor Model** to ensure protocol integrity:
+FHEstate uses a **Staked-Executor Model** coupled with a strict **Coordinator** program to ensure protocol integrity:
 
 *   **Registration**: Executors call `register_executor` with a SOL stake amount ≥ `registry.min_stake`. The SOL is transferred via CPI to the `Executor` account and locked there.
+*   **Multi-Node Coordination & CPI Enforcement**: The Coordinator establishes and maintains the multi-node coordination state. To secure enclave registration, the Coordinator program enforces strict BPF cross-program invocation (CPI) constraints and instructions sysvar introspection to authenticate TEE node attestation credentials.
 *   **Attribution**: Each `update_state` call sets `task.executor = executor.owner`, creating an immutable on-chain record of who processed each task.
 *   **Slashing**: If an executor provides a fraudulent result or reveal, the original submitter (and only the submitter) can call `challenge_task`. This is enforced on-chain: `require!(task.submitter == challenger.key())`.
 *   **Resolution**: Successful challenge immediately transfers `executor.stake` lamports to the challenger via direct lamport manipulation, sets `executor.stake = 0`, `executor.active = false`, and marks the task as `Challenged`.
@@ -139,17 +141,18 @@ FHEstate uses a **Staked-Executor Model** to ensure protocol integrity:
 
 ## 🛡️ Dark DAO: Confidential Governance
 
-FHESTATE provides a specialized architecture for **Confidential Governance (Dark DAO)**, where proposal tallying is performed homomorphically.
+FHESTATE provides a specialized architecture for **Confidential Governance (Dark DAO)**, where proposal voting and tallying are performed homomorphically.
 
 ### 🌳 Tree-Sum Aggregator
 To scale to thousands of participants, FHESTATE uses a **Binary Tree Aggregator** instead of linear summation:
 - **Efficiency**: Reduces noise growth from $O(n)$ to $O(\log n)$.
 - **Stability**: Ensures the final tally remains decryptable even after 1000+ operations.
 
-### 🕵️ Private Winner Detection
-Using homomorphic comparison gates (`MAX` / `EQ`), the aggregator determines the winning choice locally:
-- Only the **Winner ID** or **Final Outcome** is revealed.
-- **Individual votes** and **margins between candidates** remain cryptographically hidden forever.
+### 🕵️ Private Winner & Commitment Verification
+- **Pedersen Commitment Verifiers**: Integrates Pedersen commitment verifiers to validate vote commitments on-chain without revealing the voter's identity or ballot choice. This supports anonymous, untraceable proposals.
+- **Winner Detection**: Using homomorphic comparison gates (`MAX` / `EQ`), the aggregator determines the winning choice locally:
+  - Only the **Winner ID** or **Final Outcome** is revealed.
+  - **Individual votes** and **margins between candidates** remain cryptographically hidden forever.
 
 ---
 
@@ -158,13 +161,18 @@ Using homomorphic comparison gates (`MAX` / `EQ`), the aggregator determines the
 FHESTATE implements a **Shielded Vault program** (`programs/shielded_vault`) that enables users to deposit, transfer, and withdraw assets completely confidentially using Fully Homomorphic Encryption.
 
 ### 🛡️ Core Program Primitives
-*   **VaultRegistry**: A global config account tracking the authorized off-chain worker and `total_liquidity` of shielded funds in the pool.
+*   **VaultRegistry**: A global config account tracking the designated admin, the trusted `attestation_authority` public key, the `total_liquidity` of shielded funds, and the `approved_mrenclave` 32-byte code measurement hash.
 *   **EncryptedAccount PDA**: An individual user account mapped deterministically via seeds `[b"enc_account", owner_pubkey]`. Instead of storing plaintext balances, it stores `balance_hash` (the SHA256 commitment of their encrypted `FheUint32` balance ciphertext).
+*   **EnclaveAccount PDA**: Represents a verified TEE enclave authorised to submit FHE state transitions and unshield funds. Mapped via seeds `[b"enclave", enclave_pubkey]`.
+
+### 🔒 Intel SGX / TEE Remote Attestation
+*   **Instructions Sysvar Introspection**: To register an enclave, the admin submits an Ed25519 signature verification precompile instruction immediately preceding the `register_enclave` instruction. The program introspects the sysvar instructions account, verifying the signature.
+*   **64-Byte Attestation Verification Payload**: The signed message must be a 64-byte payload format `[enclave_pubkey (32 bytes) | mrenclave (32 bytes)]`. The program checks that the signer matches the registered `attestation_authority`, the signed enclave key matches target parameters, and the signed measurement (`MRENCLAVE`) matches the `approved_mrenclave` stored in the registry.
 
 ### 🔄 Shielding & Unshielding Workflows
 1.  **Shielding (Deposit)**: The user transfers SOL into the vault using the `shield_funds` instruction. The program locks the SOL and emits a `ShieldEvent(user, amount)`. The off-chain FHE executor node listens to this event, adds the deposited amount homomorphically to the user's encrypted balance, and updates the user's `balance_hash` on-chain.
-2.  **Confidential Transfers**: To send funds privately, the authorized FHE executor processes the blinded math off-chain using the public `ServerKey` and updates `sender_account.balance_hash` and `receiver_account.balance_hash` on-chain via `execute_transfer_fhe`.
-3.  **Unshielding (Withdrawal)**: Because the balance is encrypted, withdrawal requests (`unshield_funds`) are routed through the FHE executor. The executor decrypts the user's balance locally (via their `ClientKey` or an authorized decryption protocol) to verify there are sufficient funds before submitting the withdrawal transaction on-chain.
+2.  **Confidential Transfers (TEE Authorized)**: To send funds privately, the authorized TEE enclave processes the blinded math off-chain using the public `ServerKey` and updates `sender_account.balance_hash` and `receiver_account.balance_hash` on-chain via `execute_transfer_fhe_tee`.
+3.  **Unshielding (Withdrawal - TEE Authorized)**: Withdrawal requests (`unshield_funds_tee`) are routed through and signed by an active enclave. The enclave decrypts the user's balance locally (via their `ClientKey` inside TEE secure memory) to verify there are sufficient funds before submitting the withdrawal transaction on-chain.
 
 ---
 
