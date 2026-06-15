@@ -539,3 +539,208 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 ```
+
+---
+
+### Example 13: Trusted Execution Environment (TEE) Remote Attestation
+
+**Context**: Registers a secure Intel SGX enclave on-chain via the Shielded Vault program. The program uses Solana's `Instructions` Sysvar Introspection to verify that an Ed25519 precompile instruction was executed in the same transaction, signing a 64-byte payload consisting of `[enclave_key (32 bytes) | mrenclave (32 bytes)]`.
+
+```rust
+use solana_sdk::{
+    pubkey::Pubkey,
+    signature::{Keypair, Signer},
+    system_program,
+    transaction::Transaction,
+    instruction::{AccountMeta, Instruction},
+};
+use solana_client::rpc_client::RpcClient;
+use sha2::{Digest, Sha256};
+use std::error::Error;
+
+fn get_discriminator(name: &str) -> [u8; 8] {
+    let mut hasher = Sha256::new();
+    hasher.update(format!("global:{}", name).as_bytes());
+    let result = hasher.finalize();
+    let mut discriminator = [0u8; 8];
+    discriminator.copy_from_slice(&result[..8]);
+    discriminator
+}
+
+fn register_tee_enclave(
+    rpc: &RpcClient,
+    program_id: &Pubkey,
+    admin: &Keypair,
+    attestation_authority: &Keypair,
+    approved_mrenclave: &[u8; 32],
+) -> Result<Pubkey, Box<dyn Error>> {
+    // 1. Generate Ephemeral Enclave Keypair representing TEE secure boot
+    let enclave_signer = Keypair::new();
+    let enclave_pubkey = enclave_signer.pubkey();
+    
+    // Derive Enclave Account PDA
+    let (enclave_pda, _) = Pubkey::find_program_address(
+        &[b"enclave", enclave_pubkey.as_ref()],
+        program_id
+    );
+    let (registry_pda, _) = Pubkey::find_program_address(
+        &[b"vault_registry"],
+        program_id
+    );
+
+    // 2. Build 64-byte Attestation payload: [enclave_pubkey (32) | approved_mrenclave (32)]
+    let mut payload = [0u8; 64];
+    payload[..32].copy_from_slice(&enclave_pubkey.to_bytes());
+    payload[32..64].copy_from_slice(approved_mrenclave);
+
+    // Convert keys for ed25519_dalek verification compatibility
+    let authority_bytes = attestation_authority.to_bytes();
+    let dalek_keypair = ed25519_dalek::Keypair::from_bytes(&authority_bytes)?;
+
+    // 3. Build Ed25519 Signature Precompile verification instruction
+    let ed25519_ix = solana_sdk::ed25519_instruction::new_ed25519_instruction(
+        &dalek_keypair,
+        &payload,
+    );
+
+    // 4. Build register_enclave instruction
+    let mut disc = get_discriminator("register_enclave").to_vec();
+    disc.extend_from_slice(&enclave_pubkey.to_bytes());
+
+    let register_ix = Instruction::new_with_bytes(
+        *program_id,
+        &disc,
+        vec![
+            AccountMeta::new(admin.pubkey(), true),
+            AccountMeta::new_readonly(registry_pda, false),
+            AccountMeta::new(enclave_pda, false),
+            AccountMeta::new_readonly(solana_sdk::sysvar::instructions::id(), false),
+            AccountMeta::new_readonly(system_program::id(), false),
+        ],
+    );
+
+    // 5. Submit atomically
+    let blockhash = rpc.get_latest_blockhash()?;
+    let mut tx = Transaction::new_with_payer(
+        &[ed25519_ix, register_ix],
+        Some(&admin.pubkey())
+    );
+    tx.sign(&[admin], blockhash);
+    
+    let sig = rpc.send_and_confirm_transaction(&tx)?;
+    println!("TEE Enclave Registered successfully! Sig: {}", sig);
+
+    Ok(enclave_pubkey)
+}
+```
+
+---
+
+### Example 14: Dark DAO Confidential Proposal & Voting
+
+**Context**: Demonstrates creating a proposal and submitting an encrypted ballot to the Dark DAO program. The FHE worker picks up the vote events and updates the encrypted tally PDA on-chain.
+
+```rust
+use solana_sdk::{
+    pubkey::Pubkey,
+    signature::{Keypair, Signer},
+    system_program,
+    transaction::Transaction,
+    instruction::{AccountMeta, Instruction},
+};
+use solana_client::rpc_client::RpcClient;
+use sha2::{Digest, Sha256};
+use std::error::Error;
+
+fn get_discriminator(name: &str) -> [u8; 8] {
+    let mut hasher = Sha256::new();
+    hasher.update(format!("global:{}", name).as_bytes());
+    let result = hasher.finalize();
+    let mut discriminator = [0u8; 8];
+    discriminator.copy_from_slice(&result[..8]);
+    discriminator
+}
+
+// 1. Create Proposal
+fn create_confidential_proposal(
+    rpc: &RpcClient,
+    program_id: &Pubkey,
+    creator: &Keypair,
+    proposal_keypair: &Keypair,
+    description: &str,
+    voting_period: i64,
+) -> Result<(), Box<dyn Error>> {
+    let proposal_pubkey = proposal_keypair.pubkey();
+    
+    // Derive Tally PDA for proposal
+    let (tally_pda, _) = Pubkey::find_program_address(
+        &[b"tally", proposal_pubkey.as_ref()],
+        program_id
+    );
+
+    let mut data = get_discriminator("create_proposal").to_vec();
+    // Anchor serialized parameters: description (String) + voting_period (i64)
+    let desc_bytes = description.as_bytes();
+    data.extend_from_slice(&(desc_bytes.len() as u32).to_le_bytes());
+    data.extend_from_slice(desc_bytes);
+    data.extend_from_slice(&voting_period.to_le_bytes());
+
+    let ix = Instruction::new_with_bytes(
+        *program_id,
+        &data,
+        vec![
+            AccountMeta::new(proposal_pubkey, true),
+            AccountMeta::new(tally_pda, false),
+            AccountMeta::new(creator.pubkey(), true),
+            AccountMeta::new_readonly(system_program::id(), false),
+        ],
+    );
+
+    let blockhash = rpc.get_latest_blockhash()?;
+    let mut tx = Transaction::new_with_payer(&[ix], Some(&creator.pubkey()));
+    tx.sign(&[creator, proposal_keypair], blockhash);
+    rpc.send_and_confirm_transaction(&tx)?;
+
+    println!("Confidential proposal created successfully.");
+    Ok(())
+}
+
+// 2. Cast Encrypted Vote
+fn cast_encrypted_vote(
+    rpc: &RpcClient,
+    program_id: &Pubkey,
+    voter: &Keypair,
+    proposal: &Pubkey,
+    encrypted_vote_bytes: Vec<u8>,
+) -> Result<(), Box<dyn Error>> {
+    // Derive vote record PDA
+    let (vote_record_pda, _) = Pubkey::find_program_address(
+        &[b"vote_record", proposal.as_ref(), voter.pubkey().as_ref()],
+        program_id
+    );
+
+    let mut data = get_discriminator("cast_encrypted_vote").to_vec();
+    // Anchor serialized parameter: encrypted_vote (Vec<u8>)
+    data.extend_from_slice(&(encrypted_vote_bytes.len() as u32).to_le_bytes());
+    data.extend_from_slice(&encrypted_vote_bytes);
+
+    let ix = Instruction::new_with_bytes(
+        *program_id,
+        &data,
+        vec![
+            AccountMeta::new(*proposal, false),
+            AccountMeta::new(vote_record_pda, false),
+            AccountMeta::new(voter.pubkey(), true),
+            AccountMeta::new_readonly(system_program::id(), false),
+        ],
+    );
+
+    let blockhash = rpc.get_latest_blockhash()?;
+    let mut tx = Transaction::new_with_payer(&[ix], Some(&voter.pubkey()));
+    tx.sign(&[voter], blockhash);
+    rpc.send_and_confirm_transaction(&tx)?;
+
+    println!("Encrypted ballot successfully submitted.");
+    Ok(())
+}
+```
