@@ -194,6 +194,30 @@ For production or custom cryptographic requirements:
 
 ---
 
+## 🧪 5. Testing & Verification Suites
+
+FHESTATE-rs includes comprehensive integration and remote attestation validation suites that can be executed directly on Solana Devnet.
+
+### Standard E2E Integration Flow
+Run the standard shielded vault transaction flow, which executes key authority setup, token deposits (shielding), blinded transfers, and withdrawals.
+```bash
+cargo run --release --bin devnet_vault_flow
+```
+
+### TEE Remote Attestation Flow
+Simulates an Intel SGX secure enclave execution context, performs Ed25519 instructions sysvar introspection, verifies the 64-byte attestation payload, and executes TEE-authorized FHE transfers and unshielding.
+```bash
+cargo run --release --bin devnet_vault_flow_tee
+```
+
+### Safety & PDA Reclamation Utility
+If you need to redeploy or resize the registry config state, you can reclaim the locked SOL rent lamports by tearing down the `VaultRegistry` PDA.
+```bash
+cargo run --release --bin close_registry
+```
+
+---
+
 ## 🛠️ 6. Operations & Performance
 
 ### Troubleshooting Matrix
