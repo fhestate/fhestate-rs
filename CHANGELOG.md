@@ -11,13 +11,28 @@
 
 | Milestone / Version | Focus Area | Status |
 | :--- | :--- | :--- |
-| [**v0.2.0 (Current)**](#020---2026-04-17) | Core Refinement & Stability | ✅ Released |
+| [**v0.3.0 (Current)**](#030---2026-06-17) | TEE remote attestation & Devnet verification | 🚀 Released |
+| [**v0.3.0**](#030---2026-06-08) | Shielded Vault & Modular CLI | ✅ Released |
+| [**v0.2.0**](#020---2026-04-17) | Core Refinement & Stability | ✅ Released |
 | [**v0.1.0**](#010---2026-01-29) | Initial Public Release | ✅ Released |
 | [**Milestone 1**](#milestone-1-research--evaluation-november-2025) | Research & Cryptography | ✅ Completed |
 | [**Milestone 2**](#milestone-2-architecture--core-implementation-december-2025) | Core Engine Implementation | ✅ Completed |
 | [**Milestone 3**](#milestone-3-integration--tooling-january-2026) | CLI, Node & Devnet Testing | ✅ Completed |
 | [**Milestone 4**](#milestone-4-documentation--polish-late-january-2026) | Documentation & Branding | ✅ Completed |
 | **Roadmap** | **What's coming next** | 🚀 [**View Full Roadmap →**](https://www.fhestate.org/roadmap) |
+
+---
+
+## [0.3.0] - 2026-06-17
+
+**TEE Remote Attestation & Devnet Verification** — Production readiness updates for secure enclave registration, instruction sysvar introspection, and complete devnet validation suites.
+
+### Added
+* **TEE remote attestation**: Implemented instructions sysvar introspection to authenticate TEE enclaves using 64-byte signed payloads (`[enclave_key (32) | mrenclave (32)]`) signed by the Attestation Authority.
+* **Safety & Reclamation Utilities**: Added `close_registry` binary to securely tear down vault PDAs and reclaim SOL rent lamports.
+* **E2E Devnet Verification Scripts**: Added `devnet_vault_flow` and `devnet_vault_flow_tee` to execute and verify the complete Shielded Vault lifecycles on Devnet.
+* **Testing Suites**: Integrated comprehensive integration/boundary test suites for `shielded_vault`, `coordinator`, and `dark_dao`.
+* **Documentation Suite Overhaul**: Completely updated `ARCHITECTURE.md`, `API.md`, `EXAMPLES.md`, `FAQ.md`, and `QUICKSTART.md` to reflect the TEE Remote Attestation specifications and deserialization troubleshooting.
 
 ---
 
