@@ -145,3 +145,23 @@ Every `StateContainer` PDA maintains a `state_hash` field (SHA256 of the current
 
 This creates a tamper-evident, ordered sequence of state transitions. You can reconstruct the entire computation history by following the chain of hashes backward.
 
+---
+
+### Q19. Why do I see BPF or Account Deserialization / Size Mismatch faults, and how do I solve them?
+If you recently upgraded the registry account structures (for example, expanding the `VaultRegistry` data space on-chain), you will encounter deserialization faults on-chain when the Anchor program attempts to parse older accounts that were initialized with smaller space dimensions.
+
+**The Fix**:
+1. Run the safety utility `close_registry` to delete the old PDA and reclaim its rent lamports.
+2. Initialize the registry again using `initialize_vault` with the newly expanded size and layout parameters.
+
+---
+
+### Q20. What causes `InvalidEd25519Instruction` or `InvalidMrenclave` custom BPF errors?
+These errors are thrown by the `register_enclave` instruction in the Shielded Vault program when attesting a TEE enclave:
+- `InvalidEd25519Instruction`: The transaction is missing the mandatory preceding Ed25519 signature verification precompile instruction, or the index offset of the precompile is incorrect.
+- `InvalidAttestationMessage`: The signed message payload must be exactly 64 bytes (`[enclave_pubkey (32) | mrenclave (32)]`).
+- `EnclaveKeyMismatch`: The enclave public key verified by the precompile does not match the key registered in the target enclave PDA.
+- `InvalidMrenclave`: The enclave code measurement (`MRENCLAVE`) hash signed by the Attestation Authority does not match the `approved_mrenclave` configuration stored in the global registry config. Ensure your admin rotated the approved version on-chain to match the built SGX binary measurement.
+
+
+
