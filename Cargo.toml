@@ -1,6 +1,6 @@
 [package]
 name = "fhestate-rs"
-version = "0.3.0"
+version = "0.3.2"
 edition = "2021"
 description = "Privacy-preserving computation on Solana using Fully Homomorphic Encryption."
 license = "MIT"
@@ -35,6 +35,14 @@ path = "src/bin/devnet_vault_flow_tee.rs"
 [[bin]]
 name = "close_registry"
 path = "src/bin/close_registry.rs"
+
+[[bin]]
+name = "confidential_governance_flow"
+path = "src/bin/confidential_governance_flow.rs"
+
+[[bin]]
+name = "devnet_vault_enclave_flow"
+path = "src/bin/devnet_vault_enclave_flow.rs"
 
 [dependencies]
 tfhe = { version = "=0.7.3", features = ["boolean", "shortint", "integer", "x86_64"] }
