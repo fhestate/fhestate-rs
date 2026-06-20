@@ -3,6 +3,7 @@ mod config;
 mod crypto_util;
 mod output;
 mod rpc_util;
+mod vault_ops;
 mod wallet;
 
 use clap::{Parser, Subcommand};
@@ -127,6 +128,57 @@ enum Commands {
         #[command(subcommand)]
         cmd: FlowCommands,
     },
+    /// Homomorphic transfer balance hashes (JSON stdout)
+    VaultTransferHashes {
+        #[arg(long)]
+        sender_balance_uri: Option<String>,
+        #[arg(long)]
+        receiver_balance_uri: Option<String>,
+        #[arg(long)]
+        amount_lamports: u64,
+    },
+    /// Post-shield deposit balance hash (JSON stdout)
+    VaultDepositHash {
+        #[arg(long)]
+        balance_uri: Option<String>,
+        #[arg(long)]
+        deposit_lamports: u64,
+    },
+    /// Post-swap homomorphic balance hash (JSON stdout)
+    VaultSwapHash {
+        #[arg(long)]
+        current_balance_uri: Option<String>,
+        #[arg(long)]
+        amount_in_lamports: u64,
+        #[arg(long)]
+        amount_out_lamports: u64,
+    },
+    /// Accumulate encrypted DAO vote into tally (JSON stdout)
+    DaoTallyVote {
+        #[arg(long)]
+        tally_uri: Option<String>,
+        #[arg(long)]
+        vote_ciphertext_hex: String,
+    },
+    /// Store ciphertext bytes in LocalCache (JSON stdout)
+    StoreCiphertext {
+        #[arg(long)]
+        ciphertext_hex: String,
+    },
+    /// Decrypt FheUint32 from cache URI or hex (JSON stdout)
+    DecryptU32 {
+        #[arg(long)]
+        uri_or_hex: String,
+    },
+    /// Homomorphic spending guard check (JSON stdout)
+    CheckSpending {
+        #[arg(long)]
+        daily_spend_uri: Option<String>,
+        #[arg(long)]
+        proposed_lamports: u64,
+        #[arg(long, default_value_t = 1_000_000_000)]
+        limit_lamports: u64,
+    },
 }
 
 #[derive(Subcommand, Debug)]
@@ -204,6 +256,48 @@ fn main() {
         Commands::Flow { cmd } => match cmd {
             FlowCommands::Counter { value } => flow_counter(&config, value),
         },
+        Commands::VaultTransferHashes {
+            sender_balance_uri,
+            receiver_balance_uri,
+            amount_lamports,
+        } => vault_ops::vault_transfer_hashes(
+            &config,
+            sender_balance_uri.as_deref(),
+            receiver_balance_uri.as_deref(),
+            amount_lamports,
+        ),
+        Commands::VaultDepositHash {
+            balance_uri,
+            deposit_lamports,
+        } => vault_ops::vault_deposit_hash(&config, balance_uri.as_deref(), deposit_lamports),
+        Commands::VaultSwapHash {
+            current_balance_uri,
+            amount_in_lamports,
+            amount_out_lamports,
+        } => vault_ops::vault_swap_hash(
+            &config,
+            current_balance_uri.as_deref(),
+            amount_in_lamports,
+            amount_out_lamports,
+        ),
+        Commands::DaoTallyVote {
+            tally_uri,
+            vote_ciphertext_hex,
+        } => vault_ops::dao_tally_vote(&config, tally_uri.as_deref(), &vote_ciphertext_hex),
+        Commands::StoreCiphertext { ciphertext_hex } => {
+            vault_ops::store_ciphertext_hex(&config, &ciphertext_hex)
+        }
+        Commands::DecryptU32 { uri_or_hex } => vault_ops::decrypt_u32_from_uri(&config, &uri_or_hex),
+        Commands::CheckSpending {
+            daily_spend_uri,
+            proposed_lamports,
+            limit_lamports,
+        } => vault_ops::check_spending(
+            &config,
+            daily_spend_uri.as_deref(),
+            proposed_lamports,
+            limit_lamports,
+        ),
     };
 
     if let Err(e) = result {
