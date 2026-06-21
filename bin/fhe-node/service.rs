@@ -474,6 +474,10 @@ impl ExecutorService {
                     &[b"tally", task.target_owner.as_ref()],
                     &self.program_id,
                 );
+                let (worker_record_pda, _) = Pubkey::find_program_address(
+                    &[b"worker", self.keypair.pubkey().as_ref()],
+                    &self.program_id,
+                );
 
                 let disc_hash = discriminator_hasher.finalize();
                 let mut data = disc_hash[..8].to_vec();
@@ -491,6 +495,10 @@ impl ExecutorService {
                             false,
                         ),
                         solana_sdk::instruction::AccountMeta::new(tally_pda, false),
+                        solana_sdk::instruction::AccountMeta::new_readonly(
+                            worker_record_pda,
+                            false,
+                        ),
                         solana_sdk::instruction::AccountMeta::new(self.keypair.pubkey(), true),
                     ],
                 );
