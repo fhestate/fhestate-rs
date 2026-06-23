@@ -32,7 +32,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let admin = Keypair::from_bytes(&bytes)?;
     println!("Admin Address: {}", admin.pubkey());
 
-    let program_id = Pubkey::from_str("D14VbLLPcqkkZ6p4M9UDs4xfNdtB1tQDUqi7ZTt89etC")?;
+    let program_id = Pubkey::from_str("FuQzZCwPSRSVLT9gCgcft43a4RkapBJmSTC6CmdomeVQ")?;
     let (registry_pda, _) = Pubkey::find_program_address(&[b"vault_registry"], &program_id);
     println!("Registry PDA: {}", registry_pda);
 
