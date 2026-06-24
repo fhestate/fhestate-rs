@@ -45,7 +45,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     println!("Authority Balance: {:.6} SOL", balance as f64 / 1_000_000_000.0);
 
     // 3. Define Shielded Vault Program details
-    let program_id = Pubkey::from_str("BN3ZTRhfkJEcWQBJviVdmYXySruGfxuE2jbV2FPiJ9qS")?;
+    let program_id = Pubkey::from_str("FuQzZCwPSRSVLT9gCgcft43a4RkapBJmSTC6CmdomeVQ")?;
     
     // Derive PDA addresses
     let (registry_pda, _registry_bump) = Pubkey::find_program_address(&[b"vault_registry"], &program_id);
