@@ -45,7 +45,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     println!("Admin Balance: {:.6} SOL", balance as f64 / 1_000_000_000.0);
 
     // 3. Define Program details
-    let program_id = Pubkey::from_str("D14VbLLPcqkkZ6p4M9UDs4xfNdtB1tQDUqi7ZTt89etC")?;
+    let program_id = Pubkey::from_str("FuQzZCwPSRSVLT9gCgcft43a4RkapBJmSTC6CmdomeVQ")?;
     
     // Remote Attestation measurements
     let mrenclave_hex = "a8f3b20c89de57f12e873111f930e12d4a5e6f3b0c8d7e6f9a0c1b2d3e4f5a6b";
