@@ -1,7 +1,7 @@
 use anchor_lang::prelude::*;
 use anchor_lang::system_program::{transfer, Transfer};
 
-declare_id!("D14VbLLPcqkkZ6p4M9UDs4xfNdtB1tQDUqi7ZTt89etC");
+declare_id!("FuQzZCwPSRSVLT9gCgcft43a4RkapBJmSTC6CmdomeVQ");
 
 #[program]
 pub mod shielded_vault {
@@ -32,8 +32,59 @@ pub mod shielded_vault {
         registry.attestation_authority = attestation_authority;
         registry.total_liquidity = 0;
         registry.approved_mrenclave = [0; 32];
+        registry.spending_limit_hash = [0; 32];
+        registry.encrypted_daily_limit = [0; 256];
+        registry.transaction_threshold = 0;
         Ok(())
     }
+
+    pub fn update_daily_limit(ctx: Context<UpdateDailyLimit>, new_limit: [u8; 256]) -> Result<()> {
+        let registry = &mut ctx.accounts.registry;
+        require!(ctx.accounts.admin.key() == registry.admin, VaultError::Unauthorized);
+        registry.encrypted_daily_limit = new_limit;
+        Ok(())
+    }
+
+    pub fn update_transaction_threshold(ctx: Context<UpdateTransactionThreshold>, new_threshold: u64) -> Result<()> {
+        let registry = &mut ctx.accounts.registry;
+        require!(ctx.accounts.admin.key() == registry.admin, VaultError::Unauthorized);
+        registry.transaction_threshold = new_threshold;
+        Ok(())
+    }
+
+    pub fn shielded_swap_proxy(
+        ctx: Context<ShieldedSwapProxy>,
+        amount_in: u64,
+        min_amount_out: u64,
+        new_balance_hash: [u8; 32],
+    ) -> Result<()> {
+        let enclave_account = &ctx.accounts.enclave_account;
+        require!(enclave_account.is_active, VaultError::UnauthorizedEnclave);
+        require!(ctx.accounts.enclave_signer.key() == enclave_account.enclave_key, VaultError::UnauthorizedEnclave);
+
+        // Swap/Transfer logic: Transfer public funds from User to Vault
+        let cpi_context = CpiContext::new(
+            ctx.accounts.system_program.to_account_info(),
+            Transfer {
+                from: ctx.accounts.user.to_account_info(),
+                to: ctx.accounts.vault.to_account_info(),
+            },
+        );
+        transfer(cpi_context, amount_in)?;
+
+        // Update user's private FHE balance hash
+        ctx.accounts.encrypted_account.balance_hash = new_balance_hash;
+
+        emit!(SwapEvent {
+            user: ctx.accounts.user.key(),
+            amount_in,
+            min_amount_out,
+            new_balance_hash,
+        });
+
+        Ok(())
+    }
+
 
     pub fn update_attestation_authority(ctx: Context<UpdateAttestationAuthority>, new_authority: Pubkey) -> Result<()> {
         let registry = &mut ctx.accounts.registry;
@@ -46,6 +97,13 @@ pub mod shielded_vault {
         let registry = &mut ctx.accounts.registry;
         require!(ctx.accounts.admin.key() == registry.admin, VaultError::Unauthorized);
         registry.approved_mrenclave = new_mrenclave;
+        Ok(())
+    }
+
+    pub fn update_treasury_limit(ctx: Context<UpdateTreasuryLimit>, new_limit_hash: [u8; 32]) -> Result<()> {
+        let registry = &mut ctx.accounts.registry;
+        require!(ctx.accounts.admin.key() == registry.admin, VaultError::Unauthorized);
+        registry.spending_limit_hash = new_limit_hash;
         Ok(())
     }
 
@@ -69,8 +127,6 @@ pub mod shielded_vault {
         let registry = &mut ctx.accounts.registry;
         registry.total_liquidity = registry.total_liquidity.checked_add(amount).unwrap();
         
-        // The off-chain FHE worker listens for this event to physically add the amount 
-        // to their encrypted FHE balance off-chain and submit it.
         emit!(ShieldEvent {
             user: ctx.accounts.user.key(),
             amount,
@@ -86,7 +142,6 @@ pub mod shielded_vault {
     ) -> Result<()> {
         require!(ctx.accounts.authority.key() == ctx.accounts.registry.admin, VaultError::Unauthorized);
         
-        // The FHE off-chain worker posts the blinded math results
         ctx.accounts.sender_account.balance_hash = new_sender_hash;
         ctx.accounts.receiver_account.balance_hash = new_receiver_hash;
 
@@ -94,7 +149,6 @@ pub mod shielded_vault {
     }
 
     pub fn unshield_funds(ctx: Context<UnshieldFunds>, amount: u64, vault_bump: u8) -> Result<()> {
-        // Off-chain FHE worker verifies the user actually has the FHE balance before authorizing this
         require!(ctx.accounts.authority.key() == ctx.accounts.registry.admin, VaultError::Unauthorized);
 
         let registry = &mut ctx.accounts.registry;
@@ -120,7 +174,6 @@ pub mod shielded_vault {
         let registry = &ctx.accounts.registry;
         require!(ctx.accounts.authority.key() == registry.admin, VaultError::Unauthorized);
 
-        // Introspect instructions sysvar to verify the Ed25519 precompile instruction signature
         let current_index = anchor_lang::solana_program::sysvar::instructions::load_current_index_checked(
             &ctx.accounts.instructions
         )? as usize;
@@ -144,7 +197,6 @@ pub mod shielded_vault {
         let message_offset = u16::from_le_bytes([data[10], data[11]]) as usize;
         let message_size = u16::from_le_bytes([data[12], data[13]]) as usize;
         
-        // Task 3: Message is now 64 bytes: [enclave_key (32 bytes) | mrenclave (32 bytes)]
         require!(message_size == 64, VaultError::InvalidAttestationMessage);
         require!(data.len() >= pubkey_offset + 32, VaultError::InvalidEd25519Instruction);
         require!(data.len() >= message_offset + 64, VaultError::InvalidEd25519Instruction);
@@ -153,13 +205,8 @@ pub mod shielded_vault {
         let signed_enclave_key = Pubkey::new_from_array(data[message_offset..message_offset + 32].try_into().unwrap());
         let signed_mrenclave: [u8; 32] = data[message_offset + 32..message_offset + 64].try_into().unwrap();
         
-        // Verify that the signer matches the registry's attestation authority
         require!(signer_pubkey == registry.attestation_authority, VaultError::Unauthorized);
-        
-        // Verify that the signed enclave key matches target enclave_key
         require!(signed_enclave_key == enclave_key, VaultError::EnclaveKeyMismatch);
-
-        // Verify that the signed mrenclave matches approved mrenclave
         require!(signed_mrenclave == registry.approved_mrenclave, VaultError::InvalidMrenclave);
 
         let enclave_account = &mut ctx.accounts.enclave_account;
@@ -214,6 +261,62 @@ pub mod shielded_vault {
 
         Ok(())
     }
+
+    pub fn initialize_proposal(ctx: Context<InitializeProposal>, proposal_id: u64) -> Result<()> {
+        let proposal = &mut ctx.accounts.proposal;
+        proposal.proposal_id = proposal_id;
+        proposal.tally_yes_hash = [0; 32];
+        proposal.tally_no_hash = [0; 32];
+        proposal.is_active = true;
+        Ok(())
+    }
+
+    pub fn submit_dao_vote(
+        ctx: Context<SubmitDaoVote>,
+        new_yes_hash: [u8; 32],
+        new_no_hash: [u8; 32]
+    ) -> Result<()> {
+        let enclave_account = &ctx.accounts.enclave_account;
+        require!(enclave_account.is_active, VaultError::UnauthorizedEnclave);
+        require!(ctx.accounts.enclave_signer.key() == enclave_account.enclave_key, VaultError::UnauthorizedEnclave);
+
+        let proposal = &mut ctx.accounts.proposal;
+        require!(proposal.is_active, VaultError::InactiveProposal);
+
+        proposal.tally_yes_hash = new_yes_hash;
+        proposal.tally_no_hash = new_no_hash;
+        Ok(())
+    }
+
+    pub fn execute_multi_transfer_fhe_tee<'info>(
+        ctx: Context<'_, '_, '_, 'info, ExecuteMultiTransferFheTee<'info>>,
+        updates: Vec<AccountHashUpdate>,
+    ) -> Result<()> {
+        let enclave_account = &ctx.accounts.enclave_account;
+        require!(enclave_account.is_active, VaultError::UnauthorizedEnclave);
+        require!(ctx.accounts.enclave_signer.key() == enclave_account.enclave_key, VaultError::UnauthorizedEnclave);
+
+        for update in updates.iter() {
+            let mut found = false;
+            for acc_info in ctx.remaining_accounts.iter() {
+                if acc_info.key() == update.account_key {
+                    let mut data = acc_info.try_borrow_mut_data()?;
+                    require!(data.len() >= 8 + 32 + 32, VaultError::InvalidAccountData);
+                    data[40..72].copy_from_slice(&update.new_hash);
+                    found = true;
+                    break;
+                }
+            }
+            require!(found, VaultError::AccountNotFound);
+        }
+        Ok(())
+    }
+}
+
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug)]
+pub struct AccountHashUpdate {
+    pub account_key: Pubkey,
+    pub new_hash: [u8; 32],
 }
 
 #[derive(Accounts)]
@@ -221,7 +324,7 @@ pub struct InitializeVault<'info> {
     #[account(
         init,
         payer = authority,
-        space = 8 + 32 + 32 + 8 + 32,
+        space = 8 + 32 + 32 + 8 + 32 + 32 + 256 + 8,
         seeds = [b"vault_registry"],
         bump
     )]
@@ -253,6 +356,66 @@ pub struct UpdateApprovedMrenclave<'info> {
         bump
     )]
     pub registry: Account<'info, VaultRegistry>,
+}
+
+#[derive(Accounts)]
+pub struct UpdateTreasuryLimit<'info> {
+    #[account(mut)]
+    pub admin: Signer<'info>,
+    #[account(
+        mut,
+        seeds = [b"vault_registry"],
+        bump
+    )]
+    pub registry: Account<'info, VaultRegistry>,
+}
+
+#[derive(Accounts)]
+pub struct UpdateDailyLimit<'info> {
+    #[account(mut)]
+    pub admin: Signer<'info>,
+    #[account(
+        mut,
+        seeds = [b"vault_registry"],
+        bump
+    )]
+    pub registry: Account<'info, VaultRegistry>,
+}
+
+#[derive(Accounts)]
+pub struct UpdateTransactionThreshold<'info> {
+    #[account(mut)]
+    pub admin: Signer<'info>,
+    #[account(
+        mut,
+        seeds = [b"vault_registry"],
+        bump
+    )]
+    pub registry: Account<'info, VaultRegistry>,
+}
+
+#[derive(Accounts)]
+pub struct ShieldedSwapProxy<'info> {
+    pub enclave_signer: Signer<'info>,
+    #[account(
+        seeds = [b"enclave", enclave_signer.key().as_ref()],
+        bump
+    )]
+    pub enclave_account: Account<'info, EnclaveAccount>,
+    #[account(
+        mut,
+        seeds = [b"vault_registry"],
+        bump
+    )]
+    pub registry: Account<'info, VaultRegistry>,
+    #[account(mut)]
+    pub user: Signer<'info>,
+    #[account(mut)]
+    pub encrypted_account: Account<'info, EncryptedAccount>,
+    #[account(mut)]
+    /// CHECK: PDA vault holding SOL
+    pub vault: AccountInfo<'info>,
+    pub system_program: Program<'info, System>,
 }
 
 #[derive(Accounts)]
@@ -294,7 +457,7 @@ pub struct ExecuteTransferFhe<'info> {
 
 #[derive(Accounts)]
 pub struct UnshieldFunds<'info> {
-    pub authority: Signer<'info>, // FHE off-chain worker authorizes this after verifying balance
+    pub authority: Signer<'info>,
     #[account(mut)]
     pub registry: Account<'info, VaultRegistry>,
     #[account(mut)]
@@ -311,6 +474,9 @@ pub struct VaultRegistry {
     pub attestation_authority: Pubkey,
     pub total_liquidity: u64,
     pub approved_mrenclave: [u8; 32],
+    pub spending_limit_hash: [u8; 32],
+    pub encrypted_daily_limit: [u8; 256],
+    pub transaction_threshold: u64,
 }
 
 #[account]
@@ -323,6 +489,14 @@ pub struct EncryptedAccount {
 pub struct ShieldEvent {
     pub user: Pubkey,
     pub amount: u64,
+}
+
+#[event]
+pub struct SwapEvent {
+    pub user: Pubkey,
+    pub amount_in: u64,
+    pub min_amount_out: u64,
+    pub new_balance_hash: [u8; 32],
 }
 
 #[derive(Accounts)]
@@ -405,6 +579,52 @@ pub struct CloseRegistry<'info> {
     pub registry: UncheckedAccount<'info>,
 }
 
+#[derive(Accounts)]
+#[instruction(proposal_id: u64)]
+pub struct InitializeProposal<'info> {
+    #[account(
+        init,
+        payer = authority,
+        space = 8 + 8 + 32 + 32 + 1,
+        seeds = [b"proposal", proposal_id.to_le_bytes().as_ref()],
+        bump
+    )]
+    pub proposal: Account<'info, Proposal>,
+    #[account(mut)]
+    pub authority: Signer<'info>,
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct SubmitDaoVote<'info> {
+    pub enclave_signer: Signer<'info>,
+    #[account(
+        seeds = [b"enclave", enclave_signer.key().as_ref()],
+        bump
+    )]
+    pub enclave_account: Account<'info, EnclaveAccount>,
+    #[account(mut)]
+    pub proposal: Account<'info, Proposal>,
+}
+
+#[account]
+pub struct Proposal {
+    pub proposal_id: u64,
+    pub tally_yes_hash: [u8; 32],
+    pub tally_no_hash: [u8; 32],
+    pub is_active: bool,
+}
+
+#[derive(Accounts)]
+pub struct ExecuteMultiTransferFheTee<'info> {
+    pub enclave_signer: Signer<'info>,
+    #[account(
+        seeds = [b"enclave", enclave_signer.key().as_ref()],
+        bump
+    )]
+    pub enclave_account: Account<'info, EnclaveAccount>,
+}
+
 #[error_code]
 pub enum VaultError {
     #[msg("Unauthorized off-chain worker")]
@@ -419,4 +639,10 @@ pub enum VaultError {
     EnclaveKeyMismatch,
     #[msg("Enclave's code measurement (MRENCLAVE) does not match the approved version")]
     InvalidMrenclave,
+    #[msg("DAO proposal is inactive")]
+    InactiveProposal,
+    #[msg("Invalid account data length")]
+    InvalidAccountData,
+    #[msg("Account not found in remaining accounts")]
+    AccountNotFound,
 }
