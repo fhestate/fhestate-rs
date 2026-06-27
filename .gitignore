@@ -1,31 +1,46 @@
 # Ignore build artifacts
 /target/
+/target_win/
+programs/**/target/
+programs/**/target_win/
 **/*.rs.bk
 *.pdb
+*.bak
 
 # Ignore Cargo.lock for libraries (keep it for binaries)
-Cargo.lock
-Cargo.lock.bak
+# Cargo.lock
 
 # Ignore generated keys (sensitive!)
 /fhe_keys/
-.fhestate_registry
-
-
+/policy_keys/
 *.bin
 
 # Ignore wallet files (NEVER commit private keys!)
 *wallet*.json
-*.json
+deploy-wallet.json
+
+# Local config / registry (may contain paths or secrets)
+.fhestate_registry
+deployed-program-ids.json
 
 # Ignore logs
 *.log
 *.txt
 !README.txt
 
-# Ignore test artifacts
-/test-ledger/
+# Ignore ciphertext caches & test run leftovers
 /.fhe_cache/
+/.fhestate_cache/
+.fhe_test_cache_*/
+.fhe_state_test_*/
+
+# E2E / livestream artifacts
+e2e-report.json
+e2e_ct.bin
+ciphertext.bin
+
+# Internal engineering notes (not for public repo)
+DEV_DIARY.md
 
 # Ignore Python cache
 __pycache__/
