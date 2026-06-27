@@ -2,7 +2,7 @@
 
 **The chronological evolution of confidential computing on Solana.**
 
-[![Version](https://img.shields.io/badge/Version-v0.3.0-8A2BE2?style=for-the-badge&logo=rocket&logoColor=white)](https://github.com/fhestate/fhestate-rs/releases)
+[![Version](https://img.shields.io/badge/Version-v0.3.2-8A2BE2?style=for-the-badge&logo=rocket&logoColor=white)](https://github.com/fhestate/fhestate-rs/releases)
 [![Status](https://img.shields.io/badge/Status-Public_Alpha-orange?style=for-the-badge&logo=shield)](FAQ.md#q3-is-this-production-ready)
 
 ---
@@ -11,9 +11,10 @@
 
 | Milestone / Version | Focus Area | Status |
 | :--- | :--- | :--- |
-| [**v0.3.0 (Current)**](#030---2026-06-17) | TEE remote attestation & Devnet verification | 🚀 Released |
-| [**v0.3.0**](#030---2026-06-08) | Shielded Vault & Modular CLI | ✅ Released |
-| [**v0.2.0**](#020---2026-04-17) | Core Refinement & Stability | ✅ Released |
+| [**v0.3.2**](#032---2026-07-07) | Documentation & Integration Binary Cleanup | ✅ Released |
+| [**v0.3.1**](#031---2026-06-17) | TEE Enclave Attestation & Shielded Swap Proxy | ✅ Released |
+| [**v0.3.0**](#030---2026-06-08) | Shielded Vault Program & Modular CLI Refactoring | ✅ Released |
+| [**v0.2.0**](#020---2026-05-18) | Core Refinement & Stability | ✅ Released |
 | [**v0.1.0**](#010---2026-01-29) | Initial Public Release | ✅ Released |
 | [**Milestone 1**](#milestone-1-research--evaluation-november-2025) | Research & Cryptography | ✅ Completed |
 | [**Milestone 2**](#milestone-2-architecture--core-implementation-december-2025) | Core Engine Implementation | ✅ Completed |
@@ -23,16 +24,50 @@
 
 ---
 
-## [0.3.0] - 2026-06-17
+## [0.3.2] - 2026-07-07
 
-**TEE Remote Attestation & Devnet Verification** — Production readiness updates for secure enclave registration, instruction sysvar introspection, and complete devnet validation suites.
+**Documentation & Integration Binary Cleanup** — Publish-ready docs for Shielded Vault, TEE enclave flows, vault CLI helpers, and decentralized compute. Removes stale Cargo targets and renames the Devnet integration binary to feature-based naming.
 
 ### Added
-* **TEE remote attestation**: Implemented instructions sysvar introspection to authenticate TEE enclaves using 64-byte signed payloads (`[enclave_key (32) | mrenclave (32)]`) signed by the Attestation Authority.
-* **Safety & Reclamation Utilities**: Added `close_registry` binary to securely tear down vault PDAs and reclaim SOL rent lamports.
-* **E2E Devnet Verification Scripts**: Added `devnet_vault_flow` and `devnet_vault_flow_tee` to execute and verify the complete Shielded Vault lifecycles on Devnet.
-* **Testing Suites**: Integrated comprehensive integration/boundary test suites for `shielded_vault`, `coordinator`, and `dark_dao`.
-* **Documentation Suite Overhaul**: Completely updated `ARCHITECTURE.md`, `API.md`, `EXAMPLES.md`, `FAQ.md`, and `QUICKSTART.md` to reflect the TEE Remote Attestation specifications and deserialization troubleshooting.
+* **`devnet_vault_enclave_flow` binary:** End-to-end Devnet script for attestation authority rotation, MRENCLAVE alignment, enclave registration, encrypted daily limits, transaction thresholds, and `shielded_swap_proxy` — registered in `Cargo.toml`.
+* **Vault CLI documentation:** `docs/CLI.md` now documents `vault-transfer-hashes`, `vault-deposit-hash`, `vault-swap-hash`, `dao-tally-vote`, `store-ciphertext`, `decrypt-u32`, and `check-spending`.
+* **Decentralized compute guide:** `docs/DECENTRALIZED-COMPUTE.md` linked from README — describes the `fhe-node` executor and five-layer compute stack.
+
+### Changed
+* **Renamed integration binary:** `devnet_phase5_flow` → `devnet_vault_enclave_flow` (feature-based naming; no internal phase labels).
+* **Architecture docs:** Shielded Vault section retitled to *TEE Enclave Attestation & Shielded Swap*; removed misleading “Confidential Agent Network” framing from core Rust docs.
+* **Version alignment:** `Cargo.toml` bumped to `0.3.2` to match README and changelog.
+* **One-to-one documentation pass:** `SHIELDED-VAULT-PROGRAM.md`, `ARCHITECTURE.md`, `API.md`, `FHE_LOGIC.md`, and `FAQ.md` now document all 19 vault instructions, complete account layouts, vault CLI JSON schemas, Devnet program IDs, and integration binaries. Integration binaries aligned to live vault program ID `FuQzZCwPSRSVLT9gCgcft43a4RkapBJmSTC6CmdomeVQ`.
+
+### Removed
+* **Broken Cargo targets:** `threshold_decryption_simulator` and `fhe_ops_bench` (declared in `Cargo.toml` but no source files).
+
+---
+
+## [0.3.1] - 2026-06-17
+
+**TEE Enclave Attestation & Shielded Swap Proxy** — Extends the Shielded Vault with Ed25519-gated enclave registration, shielded swap proxy execution, admin policy controls, and full TypeScript SDK parity verification on Solana Devnet.
+
+### Added
+* **TEE Enclave Attestation:** Implemented `register_enclave` instruction — requires a preceding `Ed25519SigVerify` precompile instruction signed by the current `attestation_authority` over the 64-byte payload `[enclave_pubkey (32) | mrenclave (32)]`. Prevents unauthorized enclave registration without valid on-chain attestation.
+* **Shielded Swap Proxy:** Added `shielded_swap_proxy` instruction — executes a confidential swap authorized by a registered TEE enclave signer, updating the user's `EncryptedAccount.balance_hash` with the post-swap FHE commitment.
+* **Admin Policy Controls:** Added `update_attestation_authority`, `update_approved_mrenclave`, `update_daily_limit` (256-byte FHE ciphertext), and `update_transaction_threshold` instructions for production key rotation and runtime policy management.
+* **Documentation:** Added `docs/SHIELDED-VAULT-PROGRAM.md` — full on-chain reference including PDA layouts, instruction account tables, TEE attestation flow, and error codes.
+
+### Verified — Devnet transactions (2026-06-17)
+
+All instructions verified live on Solana Devnet (program `FuQzZCwPSRSVLT9gCgcft43a4RkapBJmSTC6CmdomeVQ`).
+
+| Instruction | Signature |
+|-------------|-----------|
+| `update_attestation_authority` | [`RY77t39F...`](https://solscan.io/tx/RY77t39FVJbauHR1FvVYerNySWN4umdHzG1CrHKV7iSfZLqThkottBmk34EPXSzJkDqfRx7GHZBgvPnGXsYoLgj?cluster=devnet) |
+| `update_approved_mrenclave` | [`3CVpwKf9...`](https://solscan.io/tx/3CVpwKf9Gwe7xGGX2USM8DDvFL46dFD5oZ7kVFZU8rLXvWx6BsiQKwvrkD3F3YfUxC1LU35qxTQPGxvP479ZpA2z?cluster=devnet) |
+| `update_daily_limit` (256-byte FHE ciphertext) | [`gZVa4z5K...`](https://solscan.io/tx/gZVa4z5KjXj7ipmVAb7iq3ou6RCwk7rcWbkZ1mBYYUPwJmtyasWezQDgXFwYSuT7jSt19CdHWDcocXBuKCzxXFM?cluster=devnet) |
+| `update_transaction_threshold` | [`2n5FXfbg...`](https://solscan.io/tx/2n5FXfbgwE1M9uPAD6LaUZcnACG1EdYKLtGYc61pCjegEE3P3g1tkj8KJtfu3dWKoZ1MKKsFHecuSdr1iTtLBFsM?cluster=devnet) |
+| `register_enclave` (Ed25519 TEE attestation) | [`4NezbGtN...`](https://solscan.io/tx/4NezbGtN1wTHr4kPK184nrsSATG9ENYavEUvsJofgouYMWauemzsugM6Zhtoc6Fu7NzCK9q5QBNGi7E7dZtU4cEY?cluster=devnet) |
+| `shielded_swap_proxy` (live registered enclave) | [`Lxw77MER...`](https://solscan.io/tx/Lxw77MERmAYbbneFhhPV8G2HMcoTxByvjHubGHdZvzbmtXMuXCvyVeMca7GKHpe3XchWpZ2LEK8S95YZG78E5Vg?cluster=devnet) |
+
+> **On-chain FHE balance hash after swap:** `074a93885e30f3a82f4ab4969bad55ba5d187615256165988cf38d2247d8e9ca`
 
 ---
 
@@ -47,7 +82,7 @@
 
 ### Changed
 * **CLI Codebase:** Refactored a monolithic CLI structure into dedicated configuration (`config.rs`), cryptographic helpers (`crypto_util.rs`), RPC handlers (`rpc_util.rs`), output formatters (`output.rs`), and wallet utilities (`wallet.rs`).
-* **Configuration:** Shifted CLI defaults to load from `.fhestate/config.json` and support FHESTATE_* environment overrides.
+* **Configuration:** Shifted CLI defaults to load from `.fhestate/config.json` and support `FHESTATE_*` environment overrides.
 * **Cargo Configuration:** Cleaned up unused demo examples in `Cargo.toml`.
 
 ---
