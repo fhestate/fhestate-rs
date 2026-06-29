@@ -4,7 +4,7 @@
 
 > **"Data should be seen by its owner, not by the node."**
 
-[![FHESTATE](https://img.shields.io/badge/FHESTATE-v0.2.0-8A2BE2?style=for-the-badge&logo=rocket&logoColor=white)](https://github.com/fhestate/fhestate-rs)
+[![FHESTATE](https://img.shields.io/badge/FHESTATE-v0.3.2-8A2BE2?style=for-the-badge&logo=rocket&logoColor=white)](https://github.com/fhestate/fhestate-rs)
 [![Solana](https://img.shields.io/badge/Solana-Devnet-14F195?style=for-the-badge&logo=solana&logoColor=black)](https://solana.com)
 [![TFHE-rs](https://img.shields.io/badge/TFHE--rs-v0.7.3-orange?style=for-the-badge&logo=rust&logoColor=white)](https://github.com/zama-ai/tfhe-rs)
 [![License](https://img.shields.io/badge/License-MIT-blue?style=for-the-badge)](LICENSE)
@@ -272,6 +272,36 @@ Polls Solana every `2 seconds` (configurable via `POLL_INTERVAL_SECS`) for new `
 
 The node holds **only** `server_key.bin` — it performs all computation blindly and never has access to `client_key.bin`.
 
+### Shielded Vault homomorphic helpers
+
+```bash
+cargo run --release --bin fhe-cli -- vault-swap-hash \
+  --current-balance-uri local://<hash> \
+  --amount-in-lamports 50000 \
+  --amount-out-lamports 48000
+```
+
+See [docs/CLI.md](docs/CLI.md) and [docs/API.md](docs/API.md#shielded-vault-homomorphic-commands-fhe-cli) for all eight vault commands and JSON output schemas.
+
+### Integration binaries (Devnet verification)
+
+```bash
+cargo build --release --bin devnet_vault_enclave_flow
+./target/release/devnet_vault_enclave_flow
+```
+
+| Binary | Purpose |
+|--------|---------|
+| `devnet_vault_flow` | Shield / transfer / unshield |
+| `devnet_vault_flow_tee` | TEE registration path |
+| `devnet_vault_enclave_flow` | Limits + `shielded_swap_proxy` |
+| `confidential_governance_flow` | Treasury limit + proposal votes |
+| `close_registry` | Registry teardown |
+
+**Shielded Vault program:** `FuQzZCwPSRSVLT9gCgcft43a4RkapBJmSTC6CmdomeVQ`  
+**Dark DAO program:** `Ay5Z1HQrsfnYNhRt48Mujr7k1b91bV7ir4jATYocVp5s`  
+**Coordinator program:** `57YPM8JYv8t6wArmZTD14PNo6ES9CYKGRYcZWC4FZEnq`
+
 ---
 
 ## 🎓 SDK Usage
@@ -309,8 +339,14 @@ Real FHE transactions on Solana Devnet:
 
 | Date | Operation | Transaction Hash | Status |
 |------|-----------|------------------|--------|
-| 2026-01-28 | FHE Task Submission | [`4w9MESyqbMTkvNZAVn1uLBz1tD8onSuwEqh4yjaxrZLaUvKM7Wf63etQcjvC6XMuRso7auGpH6chFQC6YGyAJ41f`](https://explorer.solana.com/tx/4w9MESyqbMTkvNZAVn1uLBz1tD8onSuwEqh4yjaxrZLaUvKM7Wf63etQcjvC6XMuRso7auGpH6chFQC6YGyAJ41f?cluster=devnet) | ✅ Confirmed |
-| 2026-01-28 | Inline Input Submission | [`454d1RTd6vbriUF46JLbomNZuX65aRMxuLDGmqWAq7oDUgFqaAtspsRdTj9yz6ofbwAA7uKrnuDxDKhE7Nw4X2v4`](https://explorer.solana.com/tx/454d1RTd6vbriUF46JLbomNZuX65aRMxuLDGmqWAq7oDUgFqaAtspsRdTj9yz6ofbwAA7uKrnuDxDKhE7Nw4X2v4?cluster=devnet) | ✅ Confirmed |
+| 2026-01-28 | FHE Task Submission | [`4w9MESyq...`](https://explorer.solana.com/tx/4w9MESyqbMTkvNZAVn1uLBz1tD8onSuwEqh4yjaxrZLaUvKM7Wf63etQcjvC6XMuRso7auGpH6chFQC6YGyAJ41f?cluster=devnet) | ✅ Confirmed |
+| 2026-01-28 | Inline Input Submission | [`454d1RTd...`](https://explorer.solana.com/tx/454d1RTd6vbriUF46JLbomNZuX65aRMxuLDGmqWAq7oDUgFqaAtspsRdTj9yz6ofbwAA7uKrnuDxDKhE7Nw4X2v4?cluster=devnet) | ✅ Confirmed |
+| 2026-06-17 | `update_attestation_authority` | [`RY77t39F...`](https://solscan.io/tx/RY77t39FVJbauHR1FvVYerNySWN4umdHzG1CrHKV7iSfZLqThkottBmk34EPXSzJkDqfRx7GHZBgvPnGXsYoLgj?cluster=devnet) | ✅ Confirmed |
+| 2026-06-17 | `update_approved_mrenclave` | [`3CVpwKf9...`](https://solscan.io/tx/3CVpwKf9Gwe7xGGX2USM8DDvFL46dFD5oZ7kVFZU8rLXvWx6BsiQKwvrkD3F3YfUxC1LU35qxTQPGxvP479ZpA2z?cluster=devnet) | ✅ Confirmed |
+| 2026-06-17 | `update_daily_limit` (FHE ciphertext) | [`gZVa4z5K...`](https://solscan.io/tx/gZVa4z5KjXj7ipmVAb7iq3ou6RCwk7rcWbkZ1mBYYUPwJmtyasWezQDgXFwYSuT7jSt19CdHWDcocXBuKCzxXFM?cluster=devnet) | ✅ Confirmed |
+| 2026-06-17 | `update_transaction_threshold` | [`2n5FXfbg...`](https://solscan.io/tx/2n5FXfbgwE1M9uPAD6LaUZcnACG1EdYKLtGYc61pCjegEE3P3g1tkj8KJtfu3dWKoZ1MKKsFHecuSdr1iTtLBFsM?cluster=devnet) | ✅ Confirmed |
+| 2026-06-17 | `register_enclave` (Ed25519 TEE attestation) | [`4NezbGtN...`](https://solscan.io/tx/4NezbGtN1wTHr4kPK184nrsSATG9ENYavEUvsJofgouYMWauemzsugM6Zhtoc6Fu7NzCK9q5QBNGi7E7dZtU4cEY?cluster=devnet) | ✅ Confirmed |
+| 2026-06-17 | `shielded_swap_proxy` (live enclave) | [`Lxw77MER...`](https://solscan.io/tx/Lxw77MERmAYbbneFhhPV8G2HMcoTxByvjHubGHdZvzbmtXMuXCvyVeMca7GKHpe3XchWpZ2LEK8S95YZG78E5Vg?cluster=devnet) | ✅ Confirmed |
 
 ---
 
@@ -348,11 +384,24 @@ Real FHE transactions on Solana Devnet:
 | Document | Description |
 |----------|-------------|
 | [Quick Start Guide](docs/QUICKSTART.md) | Get running in 5 minutes |
-| [Architecture Overview](docs/ARCHITECTURE.md) | Deep dive into system design and Dark DAO |
+| [Architecture Overview](docs/ARCHITECTURE.md) | Deep dive into system design, Dark DAO, and Shielded Vault |
+| [Shielded Vault](docs/SHIELDED-VAULT-PROGRAM.md) | `programs/shielded_vault` — TEE attestation, PDAs, instruction reference |
+| [Decentralized Compute](docs/DECENTRALIZED-COMPUTE.md) | `fhe-node` executor lifecycle and compute stack |
+| [CLI Reference](docs/CLI.md) | `fhe-cli` commands including vault homomorphic helpers |
 | [FHE Logic](docs/FHE_LOGIC.md) | **DETAILED:** Verification & Performance audit |
 | [API Reference](docs/API.md) | Complete SDK and CLI reference |
 | [Examples](docs/EXAMPLES.md) | Code examples for common use cases |
 | [Contributing](docs/CONTRIBUTING.md) | How to contribute |
+
+### Integration binaries (Devnet)
+
+| Binary | Purpose |
+|--------|---------|
+| `devnet_vault_flow` | Basic shield / unshield / transfer flow |
+| `devnet_vault_flow_tee` | Vault flow with TEE attestation steps |
+| `devnet_vault_enclave_flow` | Full enclave registration, limits, and `shielded_swap_proxy` |
+| `confidential_governance_flow` | Dark DAO encrypted tally demo |
+| `close_registry` | Tear down vault registry PDA (admin) |
 
 ---
 
