@@ -17,7 +17,11 @@
 *   **3. Mechanics**
     *   [Data Flow](#data-flow)
     *   [Cryptographic Design](#cryptographic-design)
-*   **4. Security & Performance**
+*   **4. On-chain Programs**
+    *   [Deployed Programs](#deployed-programs-solana-devnet)
+    *   [Dark DAO](#dark-dao-confidential-governance)
+    *   [Shielded Vault](#shielded-vault-tee-enclave-attestation--confidential-liquidity)
+*   **5. Security & Performance**
     *   [Security Model](#security-model)
     *   [Benchmarks](#performance-considerations)
 
@@ -90,14 +94,13 @@ The mathematical core that allows computation on encrypted data. TFHE (Torus Ful
 *   **Operations**: Arithmetic (`+`, `-`, `*`), Bitwise (`AND`, `OR`, `XOR`), Comparison (`EQ`, `GT`, `LT`, `MAX`, `MIN`), and Optimized Tallying.
 *   **Tree-Sum Optimization**: The `FheMath::tree_sum` logic enables $O(\log n)$ noise growth for large aggregations, critical for confidential governance scaling.
 *   **Server Key Activation**: The `ServerKey` must be set globally on the thread before any homomorphic operation via `set_server_key()` (or `activate_server_key()` in the SDK). This is a TFHE-rs requirement — the key is stored in thread-local storage.
-*   **Core Cache Optimization**: Implements a strict LRU (Least Recently Used) eviction policy for ciphertext buffers and refined heap allocations, avoiding memory bloat during high-throughput execution cycles.
 
 ### 2. `fhe-cli` (Client)
 
 The bridge between the user and the blockchain.
 
-*   **Role**: Encrypts user inputs and manages decryption keys.
-*   **Action**: Interacts with the `coordinator` program to submit tasks or initialize state.
+*   **Role**: Encrypts user inputs, runs vault homomorphic helpers (`vault_ops.rs`), and manages decryption keys.
+*   **Action**: Interacts with the `coordinator` program to submit tasks or initialize state; emits JSON balance hashes for the Shielded Vault program.
 *   **Security**: Holds the `ClientKey` (Secret) locally. **Never leaves the device.**
 
 ### 3. `fhe-node` (Executor & Aggregator)
@@ -126,12 +129,11 @@ The decentralized worker that processes FHE tasks and aggregates multi-party res
 
 ---
 
-## Staking & Coordinator Mechanics
+## Staking & Governance
 
-FHEstate uses a **Staked-Executor Model** coupled with a strict **Coordinator** program to ensure protocol integrity:
+FHEstate uses a **Staked-Executor Model** to ensure protocol integrity:
 
 *   **Registration**: Executors call `register_executor` with a SOL stake amount ≥ `registry.min_stake`. The SOL is transferred via CPI to the `Executor` account and locked there.
-*   **Multi-Node Coordination & CPI Enforcement**: The Coordinator establishes and maintains the multi-node coordination state. To secure enclave registration, the Coordinator program enforces strict BPF cross-program invocation (CPI) constraints and instructions sysvar introspection to authenticate TEE node attestation credentials.
 *   **Attribution**: Each `update_state` call sets `task.executor = executor.owner`, creating an immutable on-chain record of who processed each task.
 *   **Slashing**: If an executor provides a fraudulent result or reveal, the original submitter (and only the submitter) can call `challenge_task`. This is enforced on-chain: `require!(task.submitter == challenger.key())`.
 *   **Resolution**: Successful challenge immediately transfers `executor.stake` lamports to the challenger via direct lamport manipulation, sets `executor.stake = 0`, `executor.active = false`, and marks the task as `Challenged`.
@@ -139,40 +141,126 @@ FHEstate uses a **Staked-Executor Model** coupled with a strict **Coordinator** 
 
 ---
 
-## 🛡️ Dark DAO: Confidential Governance
+## Deployed programs (Solana Devnet)
 
-FHESTATE provides a specialized architecture for **Confidential Governance (Dark DAO)**, where proposal voting and tallying are performed homomorphically.
+| Program | ID | Source |
+|---------|-----|--------|
+| **Coordinator** | `57YPM8JYv8t6wArmZTD14PNo6ES9CYKGRYcZWC4FZEnq` | `programs/coordinator` |
+| **Dark DAO** | `Ay5Z1HQrsfnYNhRt48Mujr7k1b91bV7ir4jATYocVp5s` | `programs/dark_dao` |
+| **Shielded Vault** | `FuQzZCwPSRSVLT9gCgcft43a4RkapBJmSTC6CmdomeVQ` | `programs/shielded_vault` |
 
-### 🌳 Tree-Sum Aggregator
-To scale to thousands of participants, FHESTATE uses a **Binary Tree Aggregator** instead of linear summation:
-- **Efficiency**: Reduces noise growth from $O(n)$ to $O(\log n)$.
-- **Stability**: Ensures the final tally remains decryptable even after 1000+ operations.
+### Coordinator instructions
 
-### 🕵️ Private Winner & Commitment Verification
-- **Pedersen Commitment Verifiers**: Integrates Pedersen commitment verifiers to validate vote commitments on-chain without revealing the voter's identity or ballot choice. This supports anonymous, untraceable proposals.
-- **Winner Detection**: Using homomorphic comparison gates (`MAX` / `EQ`), the aggregator determines the winning choice locally:
-  - Only the **Winner ID** or **Final Outcome** is revealed.
-  - **Individual votes** and **margins between candidates** remain cryptographically hidden forever.
+| Instruction | Purpose |
+|-------------|---------|
+| `initialize` | Set `min_stake` for executors |
+| `register_executor` | Stake SOL and register FHE worker |
+| `submit_task` | Post encrypted task with `input_hash`, `input_uri`, `operation` |
+| `initialize_state` | Create submitter `StateContainer` PDA |
+| `submit_input` | Inline ciphertext fast-path (small payloads) |
+| `update_state` / `update_state_pda` | Hash-chained state transition |
+| `request_reveal` / `provide_reveal` | Encrypted result reveal flow |
+| `challenge_task` | Submitter fraud challenge + executor slashing |
 
 ---
 
-## 🔒 Shielded Vault: Private Asset Pools
+## Dark DAO: Confidential Governance
 
-FHESTATE implements a **Shielded Vault program** (`programs/shielded_vault`) that enables users to deposit, transfer, and withdraw assets completely confidentially using Fully Homomorphic Encryption.
+**Program ID:** `Ay5Z1HQrsfnYNhRt48Mujr7k1b91bV7ir4jATYocVp5s`
 
-### 🛡️ Core Program Primitives
-*   **VaultRegistry**: A global config account tracking the designated admin, the trusted `attestation_authority` public key, the `total_liquidity` of shielded funds, and the `approved_mrenclave` 32-byte code measurement hash.
-*   **EncryptedAccount PDA**: An individual user account mapped deterministically via seeds `[b"enc_account", owner_pubkey]`. Instead of storing plaintext balances, it stores `balance_hash` (the SHA256 commitment of their encrypted `FheUint32` balance ciphertext).
-*   **EnclaveAccount PDA**: Represents a verified TEE enclave authorised to submit FHE state transitions and unshield funds. Mapped via seeds `[b"enclave", enclave_pubkey]`.
+Standalone governance program for encrypted ballot casting and homomorphic tally accumulation.
 
-### 🔒 Intel SGX / TEE Remote Attestation
-*   **Instructions Sysvar Introspection**: To register an enclave, the admin submits an Ed25519 signature verification precompile instruction immediately preceding the `register_enclave` instruction. The program introspects the sysvar instructions account, verifying the signature.
-*   **64-Byte Attestation Verification Payload**: The signed message must be a 64-byte payload format `[enclave_pubkey (32 bytes) | mrenclave (32 bytes)]`. The program checks that the signer matches the registered `attestation_authority`, the signed enclave key matches target parameters, and the signed measurement (`MRENCLAVE`) matches the `approved_mrenclave` stored in the registry.
+| Instruction | Caller | Effect |
+|-------------|--------|--------|
+| `initialize` | Authority | Create DAO config |
+| `authorize_worker` | Authority | Register FHE worker allowed to call `update_tally` |
+| `create_proposal` | Creator | Open proposal + initialize `Tally` PDA |
+| `cast_encrypted_vote` | Voter | Record encrypted vote bytes; emit `VoteCast` for worker |
+| `update_tally` | Authorized worker | Write `state_hash` + `state_uri` to tally PDA |
+| `finalize_tally` | Worker | Close voting period; commit result hash |
 
-### 🔄 Shielding & Unshielding Workflows
-1.  **Shielding (Deposit)**: The user transfers SOL into the vault using the `shield_funds` instruction. The program locks the SOL and emits a `ShieldEvent(user, amount)`. The off-chain FHE executor node listens to this event, adds the deposited amount homomorphically to the user's encrypted balance, and updates the user's `balance_hash` on-chain.
-2.  **Confidential Transfers (TEE Authorized)**: To send funds privately, the authorized TEE enclave processes the blinded math off-chain using the public `ServerKey` and updates `sender_account.balance_hash` and `receiver_account.balance_hash` on-chain via `execute_transfer_fhe_tee`.
-3.  **Unshielding (Withdrawal - TEE Authorized)**: Withdrawal requests (`unshield_funds_tee`) are routed through and signed by an active enclave. The enclave decrypts the user's balance locally (via their `ClientKey` inside TEE secure memory) to verify there are sufficient funds before submitting the withdrawal transaction on-chain.
+Off-chain tally math uses `fhe-cli dao-tally-vote` (`ops::VOTE_TALLY` via `StateTransition::apply`).
+
+### Tree-Sum aggregator
+
+To scale to thousands of participants, FHESTATE uses a **binary tree aggregator** instead of linear summation:
+- **Efficiency**: Reduces noise growth from $O(n)$ to $O(\log n)$.
+- **Stability**: Keeps tallies decryptable after 1000+ homomorphic additions.
+
+### Private winner detection
+
+Using homomorphic comparison gates (`MAX` / `EQ`), the aggregator determines the winning choice locally:
+- Only the **winner ID** or **final outcome** is revealed.
+- **Individual votes** and **margins** remain encrypted.
+
+---
+
+## Shielded Vault: TEE Enclave Attestation & Confidential Liquidity
+
+**Program ID:** `FuQzZCwPSRSVLT9gCgcft43a4RkapBJmSTC6CmdomeVQ`
+
+Confidential SOL pool where balances are `FheUint32` ciphertext hashes on-chain. SOL sits in the `vault_auth` PDA. Full instruction reference: [SHIELDED-VAULT-PROGRAM.md](./SHIELDED-VAULT-PROGRAM.md).
+
+### PDAs
+
+| PDA | Seeds | Purpose |
+|-----|-------|---------|
+| `VaultRegistry` | `["vault_registry"]` | Admin, attestation authority, MRENCLAVE, limits, liquidity |
+| `Vault` | `["vault_auth"]` | SOL escrow (receives transfers; not Anchor-initialized) |
+| `EncryptedAccount` | `["enc_account", owner]` | Per-user `balance_hash` |
+| `EnclaveAccount` | `["enclave", enclave_key]` | TEE signer registration + `is_active` |
+| `Proposal` | `["proposal", proposal_id_le]` | In-vault governance tally commitments |
+
+### Instructions (complete)
+
+| Instruction | Authorized by | Effect |
+|-------------|---------------|--------|
+| `initialize_vault` | Admin | Create `VaultRegistry` |
+| `initialize_account` | User | Create `EncryptedAccount` |
+| `shield_funds` | User | Deposit SOL; `total_liquidity += amount` |
+| `unshield_funds` | Admin | Withdraw SOL from vault |
+| `execute_transfer_fhe` | Admin | Update sender/receiver `balance_hash` |
+| `update_attestation_authority` | Admin | Rotate attestation signer |
+| `update_approved_mrenclave` | Admin | Set approved enclave measurement |
+| `update_treasury_limit` | Admin | Set `spending_limit_hash` |
+| `update_daily_limit` | Admin | Store 256-byte encrypted limit |
+| `update_transaction_threshold` | Admin | Public lamport threshold |
+| `register_enclave` | Admin + Ed25519 precompile | Create active `EnclaveAccount` |
+| `toggle_enclave` | Admin | Enable/disable enclave |
+| `shielded_swap_proxy` | Active enclave + user | Swap lamports + update `balance_hash` |
+| `execute_transfer_fhe_tee` | Active enclave | TEE-gated transfer hashes |
+| `unshield_funds_tee` | Active enclave | TEE-gated withdrawal |
+| `execute_multi_transfer_fhe_tee` | Active enclave | Batch hash updates via `remaining_accounts` |
+| `initialize_proposal` | Authority | Create in-vault `Proposal` PDA |
+| `submit_dao_vote` | Active enclave | Update yes/no tally hashes |
+| `close_registry` | Admin | Drain and zero registry account |
+
+### TEE attestation flow
+
+```
+ix[n-1]: Ed25519SigVerify — attestation_authority signs [enclave_key | approved_mrenclave]
+ix[n]:   register_enclave(enclave_key) — verifies precompile, creates EnclaveAccount
+```
+
+Failures map to `VaultError::InvalidEd25519Instruction`, `InvalidAttestationMessage`, `EnclaveKeyMismatch`, or `InvalidMrenclave`.
+
+### Shielded swap flow
+
+1. Off-chain: `fhe-cli vault-swap-hash` computes post-swap `FheUint32` and `new_balance_hash`.
+2. On-chain: enclave + user sign `shielded_swap_proxy(amount_in, min_amount_out, new_balance_hash)`.
+3. Program transfers `amount_in` to vault, writes hash, emits `SwapEvent`.
+
+### `fhe-cli` vault helpers
+
+`vault-transfer-hashes`, `vault-deposit-hash`, `vault-swap-hash`, `dao-tally-vote`, `store-ciphertext`, `decrypt-u32`, `check-spending` — see [CLI.md](./CLI.md).
+
+### Integration binaries
+
+`devnet_vault_flow`, `devnet_vault_flow_tee`, `devnet_vault_enclave_flow`, `confidential_governance_flow`, `close_registry` — all target `FuQzZCwPSRSVLT9gCgcft43a4RkapBJmSTC6CmdomeVQ`.
+
+### TypeScript SDK
+
+Instruction builders live in `fhestate-sdk` (`src/solana/programs/vault.ts`).
 
 ---
 
