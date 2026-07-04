@@ -3,7 +3,7 @@
 The definitive engineering manual for `fhe-cli`—the core command-line utility for managing lattice-based Fully Homomorphic Encryption (FHE) keys, executing client-side encryption, managing local content-addressed ciphertext caches, and orchestrating on-chain Solana state transitions.
 
 [![FHESTATE](https://img.shields.io/badge/FHESTATE-CLI-8A2BE2?style=for-the-badge&logo=cargo&logoColor=white)](#)
-[![Rust](https://img.shields.io/badge/Version-v0.2.0-orange?style=for-the-badge&logo=rust)](#)
+[![Rust](https://img.shields.io/badge/Version-v0.3.2-orange?style=for-the-badge&logo=rust)](#)
 [![Network](https://img.shields.io/badge/Solana-Devnet-14F195?style=for-the-badge&logo=solana&logoColor=black)](#)
 
 ---
@@ -35,6 +35,7 @@ graph TD
     E --> E4[init-state]
     E --> E5[reveal]
     E --> E6[flow]
+    E --> E7[vault-*]
 
     F --> F1[balance]
     F --> F2[airdrop]
@@ -428,6 +429,39 @@ The following diagram illustrates the data flow within the FHESTATE system when 
 
 ---
 
+## 🛡️ 4. Shielded Vault Homomorphic Helpers
+
+Implemented in `bin/fhe-cli/vault_ops.rs`. Each command prints **JSON to stdout**. Pair outputs with `fhestate-sdk` instruction builders or integration binaries in `src/bin/`.
+
+**Vault program (Devnet):** `FuQzZCwPSRSVLT9gCgcft43a4RkapBJmSTC6CmdomeVQ`
+
+| Command | Flags | JSON output keys |
+| :--- | :--- | :--- |
+| `vault-transfer-hashes` | `--sender-balance-uri`, `--receiver-balance-uri`, `--amount-lamports` | `sender_hash`, `receiver_hash`, `sender_uri`, `receiver_uri` |
+| `vault-deposit-hash` | `--balance-uri`, `--deposit-lamports` | `new_balance_hash`, `new_balance_uri` |
+| `vault-swap-hash` | `--current-balance-uri`, `--amount-in-lamports`, `--amount-out-lamports` | `new_balance_hash`, `new_balance_uri` |
+| `dao-tally-vote` | `--tally-uri`, `--vote-ciphertext-hex` | `new_state_hash`, `new_state_uri` |
+| `store-ciphertext` | `--ciphertext-hex` | `hash`, `uri` |
+| `decrypt-u32` | `--uri-or-hex` | `value`, `uri` |
+| `check-spending` | `--daily-spend-uri`, `--proposed-lamports`, `--limit-lamports` | `allowed`, `reason` |
+
+### Example: vault swap hash
+
+```bash
+./target/release/fhe-cli vault-swap-hash \
+  --current-balance-uri local://abc123... \
+  --amount-in-lamports 50000 \
+  --amount-out-lamports 48000
+```
+
+```json
+{"new_balance_hash":"<sha256>","new_balance_uri":"local://<sha256>"}
+```
+
+Feed `new_balance_hash` into `shielded_swap_proxy`. Full on-chain reference: [SHIELDED-VAULT-PROGRAM.md](./SHIELDED-VAULT-PROGRAM.md). API detail: [API.md](./API.md#shielded-vault-homomorphic-commands-fhe-cli).
+
+---
+
 ## 🚀 5. Practical End-to-End Walkthroughs
 
 ### Walkthrough A: One-Shot SPL Memo Demo (Zero Config)
@@ -459,6 +493,21 @@ For production-grade, state-preserving Fully Homomorphic computation on Solana:
 
 # 4. Monitor state transaction confirmation
 ./target/release/fhe-cli watch --interval 2
+```
+
+### Walkthrough C: Shielded Vault Devnet flow
+
+```bash
+# 1. Keys + wallet (see QUICKSTART.md)
+cargo run --release --bin fhe_proof -- keygen --out-dir fhe_keys
+
+# 2. Off-chain swap math → JSON hash
+./target/release/fhe-cli vault-swap-hash \
+  --amount-in-lamports 50000 --amount-out-lamports 48000
+
+# 3. Full on-chain enclave + swap E2E
+cargo build --release --bin devnet_vault_enclave_flow
+./target/release/devnet_vault_enclave_flow
 ```
 
 ---
