@@ -142,7 +142,33 @@ Current benchmarks for a single $u32$ addition cycle (standard hardware):
 
 ---
 
-## 🦾 Production Readiness Status
+## 8. Shielded Vault balance commitments
+
+The Shielded Vault never stores `FheUint32` ciphertexts on-chain (32 KB each). It stores **32-byte SHA-256 commitments** of serialized ciphertexts in `EncryptedAccount.balance_hash` and policy fields in `VaultRegistry`.
+
+### Balance update pipeline
+
+1. **Encrypt** balance as `FheUint32` with `client_key.bin`.
+2. **Compute** homomorphic result off-chain (`fhe-cli vault-*` or `FheMath` directly).
+3. **Serialize** with `bincode`, hash with SHA-256 → `balance_hash`.
+4. **Submit** on-chain instruction (`execute_transfer_fhe`, `shielded_swap_proxy`, etc.) with the hash.
+5. **Verify** locally: recompute hash from cached ciphertext and compare to on-chain value before decrypting.
+
+### Spending limits
+
+- `update_daily_limit`: stores a 256-byte encrypted limit blob (full ciphertext or hash-padded commitment).
+- `update_treasury_limit`: stores `spending_limit_hash` — SHA-256 of limit ciphertext.
+- `check-spending` CLI: decrypts daily spend tracker locally and enforces `current + proposed <= limit` before signing transactions.
+
+### TEE-gated operations
+
+`register_enclave` binds enclave pubkeys to `approved_mrenclave` via Ed25519 attestation. Only `is_active` enclaves may call `shielded_swap_proxy`, `execute_transfer_fhe_tee`, `unshield_funds_tee`, `submit_dao_vote`, or `execute_multi_transfer_fhe_tee`.
+
+See [SHIELDED-VAULT-PROGRAM.md](./SHIELDED-VAULT-PROGRAM.md) for account layouts and instruction account tables.
+
+---
+
+## Production Readiness Status
 The engine is currently **Performance-Verified** on standard consumer hardware.
 - **Compilation**: Clean build with no warnings.
 - **Logic Verification**: Comparisons (`GT`, `MAX`, `EQ`) verified against plaintext results.
