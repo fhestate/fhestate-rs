@@ -240,7 +240,18 @@ cargo run --release --bin close_registry
 ## 🗺️ Next Steps
 
 1.  **Read the Architecture**: [ARCHITECTURE.md](ARCHITECTURE.md)
-2.  **Explore the API**: [API.md](API.md)
-3.  **Check the FAQ**: [FAQ.md](FAQ.md)
+2.  **Shielded Vault on-chain reference**: [SHIELDED-VAULT-PROGRAM.md](SHIELDED-VAULT-PROGRAM.md)
+3.  **Vault CLI helpers**: [CLI.md](CLI.md#️-4-shielded-vault-homomorphic-helpers)
+4.  **Full TEE enclave Devnet flow** (requires `deploy-wallet.json` + `fhe_keys/`):
+
+```bash
+cargo build --release --bin devnet_vault_enclave_flow
+./target/release/devnet_vault_enclave_flow
+```
+
+5.  **Explore the API**: [API.md](API.md)
+6.  **On-chain program reference**: [SHIELDED-VAULT-PROGRAM.md](SHIELDED-VAULT-PROGRAM.md) (all 19 vault instructions)
+7.  **Deployed program IDs**: Coordinator `57YPM8JYv8t6wArmZTD14PNo6ES9CYKGRYcZWC4FZEnq` · Dark DAO `Ay5Z1HQrsfnYNhRt48Mujr7k1b91bV7ir4jATYocVp5s` · Shielded Vault `FuQzZCwPSRSVLT9gCgcft43a4RkapBJmSTC6CmdomeVQ`
+8.  **Check the FAQ**: [FAQ.md](FAQ.md)
 
 ---
