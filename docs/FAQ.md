@@ -7,9 +7,11 @@
 
 ## 🗺️ Expert Navigator
 
-*   **4. Privacy Operations (Dark DAO)**
+*   **4. Privacy Operations (Dark DAO & Shielded Vault)**
     *   [Q15. What is a Dark DAO?](#q15-what-is-a-dark-dao)
     *   [Q16. How does Tree-Sum optimize voting?](#q16-how-does-tree-sum-optimize-voting)
+    *   [Q19. What is the Shielded Vault?](#q19-what-is-the-shielded-vault)
+    *   [Q20. Deployed program IDs](#q20-what-are-the-deployed-program-ids-on-devnet)
     *   [Q17. The Roadmap](#q17-whats-next-for-fhestate)
     *   [Q18. How does state chaining work?](#q18-how-does-the-state-hash-chain-work)
 
@@ -120,6 +122,31 @@ A **Dark DAO** is a decentralized autonomous organization where governance is co
 ### Q16. How does Tree-Sum optimize voting?
 Normally, adding 100 votes in FHE would create a "chain" of 99 additions, causing cryptographic noise to explode. **Tree-Sum** organizes these additions into a binary tree structure.
 - **Benefit**: Instead of 99 noise-levels deep, the result is only **7 levels deep** ($\log_2 100$). This ensures accurate decryptions for large-scale governance.
+
+---
+
+### Q19. What is the Shielded Vault?
+The **Shielded Vault** (`programs/shielded_vault`, Devnet `FuQzZCwPSRSVLT9gCgcft43a4RkapBJmSTC6CmdomeVQ`) is FHESTATE's confidential SOL pool. Users shield lamports into the `vault_auth` PDA; balances are tracked as SHA-256 hashes of off-chain `FheUint32` ciphertexts on `EncryptedAccount` PDAs.
+
+**Instruction groups:**
+- **Liquidity:** `shield_funds`, `unshield_funds`, `unshield_funds_tee`
+- **Transfers:** `execute_transfer_fhe`, `execute_transfer_fhe_tee`, `execute_multi_transfer_fhe_tee`
+- **TEE:** `register_enclave`, `toggle_enclave`, `shielded_swap_proxy`
+- **Policy:** `update_attestation_authority`, `update_approved_mrenclave`, `update_daily_limit`, `update_treasury_limit`, `update_transaction_threshold`
+- **Governance:** `initialize_proposal`, `submit_dao_vote`
+- **Admin:** `initialize_vault`, `close_registry`
+
+**Off-chain helpers:** `fhe-cli vault-transfer-hashes`, `vault-deposit-hash`, `vault-swap-hash`, `check-spending`, `dao-tally-vote`
+
+**Full reference:** [SHIELDED-VAULT-PROGRAM.md](SHIELDED-VAULT-PROGRAM.md) · [API.md](API.md#shielded-vault-homomorphic-commands-fhe-cli)
+
+### Q20. What are the deployed program IDs on Devnet?
+
+| Program | ID |
+|---------|-----|
+| Coordinator | `57YPM8JYv8t6wArmZTD14PNo6ES9CYKGRYcZWC4FZEnq` |
+| Dark DAO | `Ay5Z1HQrsfnYNhRt48Mujr7k1b91bV7ir4jATYocVp5s` |
+| Shielded Vault | `FuQzZCwPSRSVLT9gCgcft43a4RkapBJmSTC6CmdomeVQ` |
 
 ---
 
