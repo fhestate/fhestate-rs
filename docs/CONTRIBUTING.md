@@ -331,9 +331,12 @@ For clarity, use the following naming conventions in code and documentation:
 - **fhestate-rs**: The core Rust SDK package (`Cargo.toml` name).
 - **fhe-node**: The background compute service binary.
 - **fhe-cli**: The command-line interface for Solana interaction binary.
+- **Integration binaries** (`src/bin/`): Devnet verification scripts — `devnet_vault_flow`, `devnet_vault_flow_tee`, `devnet_vault_enclave_flow`, `confidential_governance_flow`, `close_registry`.
 - **coordinator**: The Anchor-based Solana program in `programs/coordinator/`.
 - **dark_dao**: The Anchor-based Solana voting program in `programs/dark_dao/`.
-- **shielded_vault**: The Anchor-based Solana private asset vault program in `programs/shielded_vault/`.
+- **shielded_vault**: The Anchor-based Solana private asset vault program in `programs/shielded_vault/`. Devnet ID: `FuQzZCwPSRSVLT9gCgcft43a4RkapBJmSTC6CmdomeVQ`.
+- **dark_dao**: Devnet ID `Ay5Z1HQrsfnYNhRt48Mujr7k1b91bV7ir4jATYocVp5s`.
+- **coordinator**: Devnet ID `57YPM8JYv8t6wArmZTD14PNo6ES9CYKGRYcZWC4FZEnq`.
 
 ### Low Priority
 
