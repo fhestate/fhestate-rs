@@ -1,8 +1,8 @@
 # 🛡️ FHESTATE
 
-### *CONFIDENTIAL COMPUTING ON SOLANA*
+### *THE PRIVACY LAYER FOR AUTONOMOUS AI AGENTS ON SOLANA*
 
-> **"Data should be seen by its owner, not by the node."**
+> **"Private Intelligence. Public Settlement."**
 
 [![FHESTATE](https://img.shields.io/badge/FHESTATE-v0.3.2-8A2BE2?style=for-the-badge&logo=rocket&logoColor=white)](https://github.com/fhestate/fhestate-rs)
 [![Solana](https://img.shields.io/badge/Solana-Devnet-14F195?style=for-the-badge&logo=solana&logoColor=black)](https://solana.com)
@@ -15,18 +15,11 @@
 
 ## Overview
 
-**FHESTATE** is a Rust-native stack for **private computation with public verification** on Solana. Users encrypt data locally with [TFHE-rs](https://github.com/zama-ai/tfhe-rs) (Zama). Executors run homomorphic math on ciphertexts they cannot decrypt. The chain stores hash commitments, version counters, and policy — not plaintext.
+**FHESTATE** is the privacy layer for autonomous AI agents on Solana. Built on [TFHE-rs](https://github.com/zama-ai/tfhe-rs), it lets agents compute, coordinate, and transact on encrypted state without exposing prompts, balances, memory, strategies, or intent. Solana delivers speed and composability for settlement; transparent chains leak the intelligence that makes agents valuable. FHESTATE closes that gap with encryption at the edge, confidential FHE agents (Sentinel, Auditor, and Coordinator running blind steps on six Devnet missions), hash-linked confidential memory, and on-chain proof verifiable on Solscan without plaintext. The broader stack includes **fhestate-sdk** for browser TFHE and Solana clients, **fhestate-mcp** for Model Context Protocol agent orchestration, and [fhestate.org](https://fhestate.org) for architecture and security — confidential computing, decentralized compute, and autonomous agents as one product.
 
-The repo ships three Devnet Anchor programs, a CLI, an executor node, integration binaries, and SDK helpers. Together they cover:
+**`fhestate-rs`** is the Rust core in this repository. It ships three Devnet Anchor programs - **Coordinator** (hash-chained `StateContainer` PDAs, task queue, executor staking), **Dark DAO** (encrypted ballots and homomorphic tally commitments), and **Shielded Vault** (confidential SOL custody, balance hash commitments, TEE enclave attestation). Off-chain, **`fhe-cli`** handles encryption and vault hash helpers; **`fhe-node`** runs decentralized compute - polling Devnet, resolving cache URIs, executing homomorphic math with the public server key, and posting state updates without decrypting user data. `fhe_proof` and integration binaries verify the full stack end to end; TypeScript SDK layouts mirror program PDAs and discriminators for integrators.
 
-| Layer | What it does |
-|-------|----------------|
-| **Coordinator** | Hash-chained `StateContainer` PDAs, task queue, executor staking, reveal + challenge |
-| **Dark DAO** | Encrypted ballot casting and homomorphic tally commitments |
-| **Shielded Vault** | Confidential SOL pool, FHE balance hashes, TEE enclave attestation, in-vault governance |
-| **Off-chain runtime** | `fhe-cli` encryption + vault helpers, `fhe-node` blind execution, `.fhe_cache` content addressing |
-
-Unlike ZK proofs (which prove a statement *about* data), FHE lets the server **compute on** encrypted data. The node never sees plaintext — only lattice noise it can operate on mathematically.
+The model is hybrid: ciphertext bytes live off-chain in `.fhe_cache`; Solana anchors SHA-256 commitments, URI pointers, and versioned PDAs. FHE executes computation on ciphertext directly - unlike zero-knowledge proofs that only attest to a result. Only the client key holder decrypts; the executor sees lattice noise. That binds confidential computing, decentralized `fhe-node` execution, and blind agent workflows to one verifiable ledger. Diagrams, flows, and setup follow below - see [Architecture](docs/ARCHITECTURE.md) and [Quick Start](docs/QUICKSTART.md).
 
 ---
 
