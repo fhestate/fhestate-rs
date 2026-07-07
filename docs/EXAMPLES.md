@@ -22,6 +22,7 @@
     *   [Private Voting](#example-8-private-voting) - Secret tallies.
     *   [Sealed-Bid Auction](#example-9-sealed-bid-auction) - Blind bidding logic.
     *   [Privacy-Preserving Mean](#example-10-privacy-preserving-mean) - Secure stats.
+    *   [Shielded Vault CLI](#example-11-shielded-vault-cli-helpers) - Homomorphic balance hashes for vault txs.
 
 ---
 
@@ -503,6 +504,37 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 ```
+
+---
+
+### Example 11: Shielded Vault CLI Helpers
+**Context**: Before submitting vault instructions on-chain, compute homomorphic balance hashes locally with `fhe-cli`. Output is JSON for SDK instruction builders.
+
+```bash
+# After fhe-cli setup && keygen
+./target/release/fhe-cli vault-deposit-hash \
+  --balance-uri local://<existing-hash> \
+  --deposit-lamports 1000000
+
+./target/release/fhe-cli vault-swap-hash \
+  --current-balance-uri local://<existing-hash> \
+  --amount-in-lamports 50000 \
+  --amount-out-lamports 48000
+
+./target/release/fhe-cli check-spending \
+  --daily-spend-uri local://<spend-ct> \
+  --proposed-lamports 250000 \
+  --limit-lamports 1000000000
+```
+
+For a full Devnet transaction sequence (enclave registration + limits + `shielded_swap_proxy`), build and run:
+
+```bash
+cargo build --release --bin devnet_vault_enclave_flow
+./target/release/devnet_vault_enclave_flow
+```
+
+See [SHIELDED-VAULT-PROGRAM.md](SHIELDED-VAULT-PROGRAM.md) and [CLI.md](CLI.md#️-4-shielded-vault-homomorphic-helpers).
 
 ---
 
